@@ -21,7 +21,7 @@ struct Sermon: Codable, Identifiable {
     var cleaned: String
 }
 @main struct StudioApp: App {
-    var body: some Scene { WindowGroup("Sermon Studio 3.0 Preview") { StudioView() }.defaultSize(width: 1100, height: 720) }
+    var body: some Scene { WindowGroup("Sermon Studio") { StudioView() }.defaultSize(width: 1100, height: 720) }
 }
 struct StudioView: View {
     @AppStorage("defaultModel") private var model = "small.en"
@@ -38,7 +38,13 @@ struct StudioView: View {
     @State private var library: [Sermon] = []
     @State private var selectedID: String?
     @State private var task: Task<Void, Never>?
-    private let models = ["base.en", "small.en", "medium.en", "large-v3-turbo"]
+    private let models = ["base.en", "small.en", "medium.en", "large-v3-v20240930_626MB"]
+    private func resolvedModel(_ selection: String) -> String {
+        switch selection {
+        case "large-v3-turbo", "large-v3-v20240930_626MB": return "large-v3-v20240930_626MB"
+        default: return selection
+        }
+    }
     private var archiveURL: URL { FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("SermonStudio/archive.json") }
     var body: some View {
         NavigationSplitView {
@@ -104,11 +110,11 @@ struct StudioView: View {
         if p.runModal() == .OK, let url = p.url { folder = url.path }
     }
     func start() {
-        guard let audio else { return }; let chosen = model; busy = true; status = "Preparing model (first use may require a download)…"
+        guard let audio else { return }; let chosen = model; busy = true; status = "Preparing model (first use may download and compile it; this can take several minutes)…"
         task = Task { @MainActor in
             defer { busy = false }
             do {
-                let kit = try await WhisperKit(WhisperKitConfig(model: chosen))
+                let kit = try await WhisperKit(WhisperKitConfig(model: resolvedModel(chosen)))
                 try Task.checkCancellation()
                 status = "Transcribing locally…"
                 let results: [TranscriptionResult] = try await kit.transcribe(audioPath: audio.path)
