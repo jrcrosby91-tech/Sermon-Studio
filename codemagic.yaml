@@ -13,6 +13,31 @@ workflows:
           git config --global credential.interactive never
           curl --fail --location --retry 5 --retry-all-errors --connect-timeout 30 --output /tmp/Sparkle-for-Swift-Package-Manager.zip https://github.com/sparkle-project/Sparkle/releases/download/2.7.1/Sparkle-for-Swift-Package-Manager.zip
           unzip -t /tmp/Sparkle-for-Swift-Package-Manager.zip | tail -n 2
+          mkdir -p macos/.codemagic-sparkle
+          unzip -q /tmp/Sparkle-for-Swift-Package-Manager.zip -d macos/.codemagic-sparkle
+          echo "Downloaded Sparkle framework:"
+          find macos/.codemagic-sparkle -name '*.xcframework' -maxdepth 4 -print
+          python3 - <<'PY'
+          from pathlib import Path
+          base = Path("macos/.codemagic-sparkle")
+          frameworks = list(base.rglob("Sparkle.xcframework"))
+          if len(frameworks) != 1:
+              raise SystemExit(f"Expected one Sparkle.xcframework, found {len(frameworks)}")
+          framework = frameworks[0].relative_to(base).as_posix()
+          (base / "Package.swift").write_text(
+              '// swift-tools-version: 5.9\\nimport PackageDescription\\n'
+              'let package = Package(name: "Sparkle", platforms: [.macOS(.v10_13)], '
+              'products: [.library(name: "Sparkle", targets: ["Sparkle"])], '
+              f'targets: [.binaryTarget(name: "Sparkle", path: "{framework}")])\\n'
+          )
+          manifest = Path("macos/Package.swift")
+          source = manifest.read_text()
+          old = '.package(url: "https://github.com/sparkle-project/Sparkle.git", exact: "2.7.1")'
+          if old not in source:
+              raise SystemExit("Sparkle dependency declaration changed")
+          manifest.write_text(source.replace(old, '.package(path: ".codemagic-sparkle")'))
+          print("SwiftPM configured to use locally downloaded Sparkle.")
+          PY
       - name: Build macOS app and installers
         script: |
           set -euo pipefail
