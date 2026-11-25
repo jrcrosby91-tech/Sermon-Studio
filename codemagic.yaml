@@ -6,6 +6,13 @@ workflows:
     environment:
       xcode: latest
     scripts:
+      - name: Prepare public Sparkle artifact download
+        script: |
+          set -euo pipefail
+          mkdir -p "$HOME/.swiftpm"
+          git config --global credential.interactive never
+          curl --fail --location --retry 5 --retry-all-errors --connect-timeout 30 --output /tmp/Sparkle-for-Swift-Package-Manager.zip https://github.com/sparkle-project/Sparkle/releases/download/2.7.1/Sparkle-for-Swift-Package-Manager.zip
+          unzip -t /tmp/Sparkle-for-Swift-Package-Manager.zip | tail -n 2
       - name: Build macOS app and installers
         script: |
           set -euo pipefail
