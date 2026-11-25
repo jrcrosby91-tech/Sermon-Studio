@@ -42,11 +42,19 @@ if [[ -n "$SERMON_UPDATE_PUBLIC_KEY" ]]; then
   /usr/libexec/PlistBuddy -c "Add :SUFeedURL string https://jrcrosby91-tech.github.io/Sermon-Studio/appcast.xml" "$APP/Contents/Info.plist"
   /usr/libexec/PlistBuddy -c "Add :SUAllowsAutomaticUpdates bool false" "$APP/Contents/Info.plist"
 fi
+if [[ -n "${SERMON_BUILD_NUMBER:-}" ]]; then
+  [[ "$SERMON_BUILD_NUMBER" =~ ^[0-9]+$ ]] || exit 1
+  /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $SERMON_BUILD_NUMBER" "$APP/Contents/Info.plist"
+fi
+if [[ -n "${SERMON_VERSION:-}" ]]; then
+  /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $SERMON_VERSION" "$APP/Contents/Info.plist"
+fi
 plutil -lint "$APP/Contents/Info.plist"
 echo "Removing extended attributes from staged application..."
 xattr -cr "$APP"
 codesign --force --deep --sign - "$APP"
 codesign --verify --strict "$APP"
+ditto -c -k --sequesterRsrc --keepParent "$APP" "$PWD/dist/Sermon-Studio-macOS-arm64.zip"
 ln -s /Applications "$STAGE/Applications"
 hdiutil create -volname "Sermon Studio" -srcfolder "$STAGE" -ov -format UDZO "$PWD/dist/Sermon-Studio-macOS-arm64.dmg"
 echo "Installer ready: $PWD/dist/Sermon-Studio-macOS-arm64.dmg"
