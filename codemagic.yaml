@@ -35,7 +35,7 @@ workflows:
           old = '.package(url: "https://github.com/sparkle-project/Sparkle.git", exact: "2.7.1")'
           if old not in source:
               raise SystemExit("Sparkle dependency declaration changed")
-          manifest.write_text(source.replace(old, '.package(path: ".codemagic-sparkle")'))
+          manifest.write_text(source.replace(old, '.package(name: "Sparkle", path: ".codemagic-sparkle")'))
           print("SwiftPM configured to use locally downloaded Sparkle.")
           PY
       - name: Build macOS app and installers
