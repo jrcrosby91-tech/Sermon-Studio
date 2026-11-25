@@ -98,7 +98,12 @@ struct StudioView: View {
                         TextField("Names and vocabulary", text: $contextVocabulary)
                         Text("Context prompts are not yet supported in this native build.").font(.caption)
                     }
-                    if let player { VideoPlayer(player: player).frame(height: 100) }
+                    if let player {
+                        HStack {
+                            Button("Play recording") { player.play() }
+                            Button("Pause recording") { player.pause() }
+                        }
+                    }
                     Button("Transcribe locally", action: start).disabled(audio == nil || busy)
                     if busy { ProgressView(); Button("Cancel") { task?.cancel() } }
                 } else if page == "Transcript editor" {
