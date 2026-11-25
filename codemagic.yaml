@@ -59,3 +59,44 @@ workflows:
       - macos/dist/*.dmg
       - macos/dist/*.zip
       - macos/dist/build.log
+
+  macos-release:
+    name: Publish Sermon Studio macOS release
+    instance_type: mac_mini_m2
+    max_build_duration: 120
+    environment:
+      xcode: latest
+      groups:
+        - sermon_studio_release
+      vars:
+        SERMON_VERSION: "3.0.3"
+        SERMON_BUILD_NUMBER: "4"
+    scripts:
+      - name: Validate release credentials and version
+        script: |
+          set -euo pipefail
+          test -n "${GH_TOKEN:-}" || { echo "Missing GH_TOKEN in sermon_studio_release environment group"; exit 1; }
+          test -n "${SPARKLE_PRIVATE_KEY:-}" || { echo "Missing SPARKLE_PRIVATE_KEY in sermon_studio_release environment group"; exit 1; }
+          [[ "$SERMON_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || exit 1
+          [[ "$SERMON_BUILD_NUMBER" =~ ^[1-9][0-9]*$ ]] || exit 1
+          if ! command -v gh >/dev/null; then brew install gh; fi
+          gh api repos/jrcrosby91-tech/Sermon-Studio --jq .full_name
+          if gh release view "mac-v$SERMON_VERSION" -R jrcrosby91-tech/Sermon-Studio >/dev/null 2>&1; then
+            echo "Release already exists"; exit 1
+          fi
+      - name: Prepare Sparkle framework
+        script: |
+          set -euo pipefail
+          bash macos/prepare-sparkle.sh
+      - name: Build macOS app and installers
+        script: |
+          set -euo pipefail
+          CI=1 bash macos/build-local.sh
+      - name: Sign and publish update
+        script: |
+          set -euo pipefail
+          bash macos/publish-codemagic.sh
+    artifacts:
+      - macos/dist/*.dmg
+      - macos/dist/*.zip
+      - macos/dist/build.log
