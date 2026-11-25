@@ -107,59 +107,65 @@ struct StudioView: View {
                     Button("Transcribe locally", action: start).disabled(audio == nil || busy)
                     if busy { ProgressView(); Button("Cancel") { task?.cancel() } }
                 } else if page == "Transcript editor" {
-                    TextField("Sermon title", text: $title)
-                    DatePicker("Sermon date", selection: $sermonDate, displayedComponents: .date)
-                    Picker("Transcript", selection: $useCleaned) { Text("Original").tag(false); Text("Cleaned").tag(true) }.pickerStyle(.segmented)
-                    HStack {
-                        TextField("Find", text: $findText)
-                        TextField("Replace", text: $replacement)
-                        Button("Replace all", action: replaceAll).disabled(findText.isEmpty)
-                        Button("Compare") { compare.toggle() }
-                        Button("Clean text") { cleaned = clean(original) }
-                    }
-                    if compare {
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: 16) {
+                        TextField("Sermon title", text: $title)
+                        DatePicker("Sermon date", selection: $sermonDate, displayedComponents: .date)
+                        Picker("Transcript", selection: $useCleaned) { Text("Original").tag(false); Text("Cleaned").tag(true) }.pickerStyle(.segmented)
                         HStack {
-                            ScrollView { Text(original).textSelection(.enabled) }
-                            Divider()
-                            ScrollView { Text(cleaned).textSelection(.enabled) }
-                        }.frame(height: 160)
-                    }
-                    TextEditor(text: useCleaned ? $cleaned : $original).font(.system(size: fontSize))
-                    if let player {
-                        HStack {
-                            Button("Play") { player.play() }
-                            Button("Pause") { player.pause() }
+                            TextField("Find", text: $findText)
+                            TextField("Replace", text: $replacement)
+                            Button("Replace all", action: replaceAll).disabled(findText.isEmpty)
+                            Button("Compare") { compare.toggle() }
+                            Button("Clean text") { cleaned = clean(original) }
                         }
-                    }
-                    DisclosureGroup("Detected Bible references (ESV)") {
-                        if references.isEmpty { Text("No explicit references detected.") }
-                        ForEach(references, id: \.self) { ref in
-                            if let encoded = ref.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed),
-                               let url = URL(string: "https://www.esv.org/" + encoded + "/") {
-                                Link(ref, destination: url)
+                        if compare {
+                            HStack {
+                                ScrollView { Text(original).textSelection(.enabled) }
+                                Divider()
+                                ScrollView { Text(cleaned).textSelection(.enabled) }
+                            }.frame(height: 160)
+                        }
+                        TextEditor(text: useCleaned ? $cleaned : $original)
+                            .font(.system(size: fontSize))
+                            .frame(minHeight: 360)
+                        if let player {
+                            HStack {
+                                Button("Play") { player.play() }
+                                Button("Pause") { player.pause() }
                             }
                         }
-                        Text("Verify references against scripture.").font(.caption)
-                    }
-                    DisclosureGroup("Extractive outline") {
-                        ForEach(outline, id: \.self) { Text($0) }
-                    }
-                    DisclosureGroup("Timestamps and transcript review") {
-                        if segments.isEmpty { Text("No timestamp data available.") }
-                        ForEach(segments) { segment in
-                            HStack {
-                                Button(String(format: "%02d:%02d", Int(segment.start) / 60, Int(segment.start) % 60)) {
-                                    player?.seek(to: CMTime(seconds: segment.start, preferredTimescale: 600))
-                                    player?.play()
-                                }.disabled(player == nil)
-                                Text(segment.text).lineLimit(2)
-                                if let score = segment.confidence, score < -1 {
-                                    Image(systemName: "exclamationmark.triangle").help("Review: low model log probability")
+                        DisclosureGroup("Detected Bible references (ESV)") {
+                            if references.isEmpty { Text("No explicit references detected.") }
+                            ForEach(references, id: \.self) { ref in
+                                if let encoded = ref.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed),
+                                   let url = URL(string: "https://www.esv.org/" + encoded + "/") {
+                                    Link(ref, destination: url)
+                                }
+                            }
+                            Text("Verify references against scripture.").font(.caption)
+                        }
+                        DisclosureGroup("Extractive outline") {
+                            ForEach(outline, id: \.self) { Text($0) }
+                        }
+                        DisclosureGroup("Timestamps and transcript review") {
+                            if segments.isEmpty { Text("No timestamp data available.") }
+                            ForEach(segments) { segment in
+                                HStack {
+                                    Button(String(format: "%02d:%02d", Int(segment.start) / 60, Int(segment.start) % 60)) {
+                                        player?.seek(to: CMTime(seconds: segment.start, preferredTimescale: 600))
+                                        player?.play()
+                                    }.disabled(player == nil)
+                                    Text(segment.text).lineLimit(2)
+                                    if let score = segment.confidence, score < -1 {
+                                        Image(systemName: "exclamationmark.triangle").help("Review: low model log probability")
+                                    }
                                 }
                             }
                         }
+                        HStack { Button("Save to library", action: save); Button("Export TXT") { export("txt") }; Button("Export Markdown") { export("md") }; Button("Export RTF") { export("rtf") }; Button("Export SRT") { export("srt") }; Button("Export VTT") { export("vtt") }; Button("Print / PDF") { printTranscript() } }
+                        }
                     }
-                    HStack { Button("Save to library", action: save); Button("Export TXT") { export("txt") }; Button("Export Markdown") { export("md") }; Button("Export RTF") { export("rtf") }; Button("Export SRT") { export("srt") }; Button("Export VTT") { export("vtt") }; Button("Print / PDF") { printTranscript() } }
                 } else if page == "Sermon library" {
                     Button("Import web archive…", action: importArchive)
                     Button("Backup library…", action: backupArchive)
