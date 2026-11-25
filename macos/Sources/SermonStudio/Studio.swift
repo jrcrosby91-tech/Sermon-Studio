@@ -3,6 +3,7 @@ import AppKit
 import UniformTypeIdentifiers
 import WhisperKit
 import Sparkle
+import AVKit
 
 @MainActor final class StudioUpdates: ObservableObject {
     let controller: SPUStandardUpdaterController?
@@ -19,6 +20,14 @@ struct Sermon: Codable, Identifiable {
     var date: String
     var original: String
     var cleaned: String
+    var segments: [SermonSegment]? = nil
+}
+struct SermonSegment: Codable, Identifiable {
+    var id = UUID()
+    var start: Double
+    var end: Double
+    var text: String
+    var confidence: Double?
 }
 @main struct StudioApp: App {
     var body: some Scene { WindowGroup("Sermon Studio") { StudioView() }.defaultSize(width: 1100, height: 720) }
@@ -44,6 +53,21 @@ struct StudioView: View {
     @State private var compare = false
     @AppStorage("editorFontSize") private var fontSize = 18.0
     @State private var sermonDate = Date()
+    @State private var segments: [SermonSegment] = []
+    @State private var player: AVPlayer?
+    @AppStorage("biblicalAssistance") private var biblicalAssistance = true
+    @State private var contextVocabulary = ""
+    private var activeText: String { useCleaned ? cleaned : original }
+    private var references: [String] {
+        let books = "Genesis|Exodus|Leviticus|Numbers|Deuteronomy|Joshua|Judges|Ruth|Samuel|Kings|Chronicles|Ezra|Nehemiah|Esther|Job|Psalms?|Proverbs|Ecclesiastes|Song of Solomon|Isaiah|Jeremiah|Lamentations|Ezekiel|Daniel|Hosea|Joel|Amos|Obadiah|Jonah|Micah|Nahum|Habakkuk|Zephaniah|Haggai|Zechariah|Malachi|Matthew|Mark|Luke|John|Acts|Romans|Corinthians|Galatians|Ephesians|Philippians|Colossians|Thessalonians|Timothy|Titus|Philemon|Hebrews|James|Peter|Jude|Revelation"
+        let pattern = "\\b(?:[123]\\s*)?(?:" + books + ")\\s+\\d+(?::\\d+(?:[-–]\\d+)?)?"
+        guard let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]) else { return [] }
+        let source = activeText as NSString
+        return Array(Set(regex.matches(in: activeText, range: NSRange(location: 0, length: source.length)).map { source.substring(with: $0.range) })).sorted()
+    }
+    private var outline: [String] {
+        Array(activeText.components(separatedBy: CharacterSet(charactersIn: ".!?")).map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { $0.count > 40 }.prefix(5))
+    }
     private let models = ["base.en", "small.en", "medium.en", "large-v3-v20240930_626MB"]
     private func resolvedModel(_ selection: String) -> String {
         switch selection {
@@ -69,6 +93,12 @@ struct StudioView: View {
                     Button("Choose audio recording…", action: chooseAudio).disabled(busy)
                     Text(audio?.lastPathComponent ?? "No recording selected")
                     modelPicker
+                    DisclosureGroup("Advanced transcription settings") {
+                        Toggle("Biblical vocabulary assistance (experimental)", isOn: $biblicalAssistance)
+                        TextField("Names and vocabulary", text: $contextVocabulary)
+                        Text("Context prompts are not yet supported in this native build.").font(.caption)
+                    }
+                    if let player { VideoPlayer(player: player).frame(height: 100) }
                     Button("Transcribe locally", action: start).disabled(audio == nil || busy)
                     if busy { ProgressView(); Button("Cancel") { task?.cancel() } }
                 } else if page == "Transcript editor" {
@@ -90,7 +120,41 @@ struct StudioView: View {
                         }.frame(height: 160)
                     }
                     TextEditor(text: useCleaned ? $cleaned : $original).font(.system(size: fontSize))
-                    HStack { Button("Save to library", action: save); Button("Export TXT") { export("txt") }; Button("Export Markdown") { export("md") }; Button("Export RTF") { export("rtf") } }
+                    if let player {
+                        HStack {
+                            Button("Play") { player.play() }
+                            Button("Pause") { player.pause() }
+                        }
+                    }
+                    DisclosureGroup("Detected Bible references (ESV)") {
+                        if references.isEmpty { Text("No explicit references detected.") }
+                        ForEach(references, id: \.self) { ref in
+                            if let encoded = ref.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed),
+                               let url = URL(string: "https://www.esv.org/" + encoded + "/") {
+                                Link(ref, destination: url)
+                            }
+                        }
+                        Text("Verify references against scripture.").font(.caption)
+                    }
+                    DisclosureGroup("Extractive outline") {
+                        ForEach(outline, id: \.self) { Text($0) }
+                    }
+                    DisclosureGroup("Timestamps and transcript review") {
+                        if segments.isEmpty { Text("No timestamp data available.") }
+                        ForEach(segments) { segment in
+                            HStack {
+                                Button(String(format: "%02d:%02d", Int(segment.start) / 60, Int(segment.start) % 60)) {
+                                    player?.seek(to: CMTime(seconds: segment.start, preferredTimescale: 600))
+                                    player?.play()
+                                }.disabled(player == nil)
+                                Text(segment.text).lineLimit(2)
+                                if let score = segment.confidence, score < -1 {
+                                    Image(systemName: "exclamationmark.triangle").help("Review: low model log probability")
+                                }
+                            }
+                        }
+                    }
+                    HStack { Button("Save to library", action: save); Button("Export TXT") { export("txt") }; Button("Export Markdown") { export("md") }; Button("Export RTF") { export("rtf") }; Button("Export SRT") { export("srt") }; Button("Export VTT") { export("vtt") }; Button("Print / PDF") { printTranscript() } }
                 } else if page == "Sermon library" {
                     Button("Import web archive…", action: importArchive)
                     Button("Backup library…", action: backupArchive)
@@ -136,6 +200,7 @@ struct StudioView: View {
                     return
                 }
                 audio = url
+                player = AVPlayer(url: url)
                 title = url.deletingPathExtension().lastPathComponent
                 selectedID = nil
                 status = "Recording selected. Ready to transcribe."
@@ -156,6 +221,7 @@ struct StudioView: View {
                 status = "Transcribing locally…"
                 let results: [TranscriptionResult] = try await kit.transcribe(audioPath: audio.path)
                 try Task.checkCancellation()
+                segments = results.flatMap { $0.segments }.map { SermonSegment(start: Double($0.start), end: Double($0.end), text: $0.text, confidence: Double($0.avgLogprob)) }
                 original = results.map { $0.text }.joined(separator: " ")
                 cleaned = original.replacingOccurrences(of: "\\b(um|uh|erm)\\b[ ,]*", with: "", options: [.regularExpression, .caseInsensitive])
                 selectedID = nil; page = "Transcript editor"; save()
@@ -169,7 +235,7 @@ struct StudioView: View {
     func save() {
         let id = selectedID ?? UUID().uuidString
         let date = String(ISO8601DateFormatter().string(from: sermonDate).prefix(10))
-        let item = Sermon(id: id, title: title, date: date, original: original, cleaned: cleaned)
+        let item = Sermon(id: id, title: title, date: date, original: original, cleaned: cleaned, segments: segments)
         library.removeAll { $0.id == id }; library.insert(item, at: 0); selectedID = id
         do { try persist(); status = "Saved to library." } catch { status = error.localizedDescription }
     }
@@ -185,7 +251,17 @@ struct StudioView: View {
         else { let dir = URL(fileURLWithPath: folder); url = dir.appendingPathComponent(name + "." + ext); var n = 1; while FileManager.default.fileExists(atPath: url.path) { url = dir.appendingPathComponent(name + " (" + String(n) + ")." + ext); n += 1 } }
         do {
             let text = useCleaned ? cleaned : original
-            if ext == "rtf" {
+            if ext == "srt" || ext == "vtt" {
+                guard !segments.isEmpty else { status = "No timestamps available."; return }
+                func stamp(_ t: Double) -> String {
+                    let ms = max(0, Int(t * 1000))
+                    return String(format: "%02d:%02d:%02d", ms / 3600000, (ms / 60000) % 60, (ms / 1000) % 60) + (ext == "srt" ? "," : ".") + String(format: "%03d", ms % 1000)
+                }
+                let entries = segments.enumerated().map { i, segment in
+                    (ext == "srt" ? String(i + 1) + "\n" : "") + stamp(segment.start) + " --> " + stamp(segment.end) + "\n" + segment.text
+                }
+                try ((ext == "vtt" ? "WEBVTT\n\n" : "") + entries.joined(separator: "\n\n")).write(to: url, atomically: true, encoding: .utf8)
+            } else if ext == "rtf" {
                 let attributed = NSAttributedString(string: text)
                 let data = try attributed.data(from: NSRange(location: 0, length: attributed.length), documentAttributes: [.documentType: NSAttributedString.DocumentType.rtf])
                 try data.write(to: url, options: .atomic)
@@ -195,10 +271,17 @@ struct StudioView: View {
             status = "Exported to " + url.path
         } catch { status = error.localizedDescription }
     }
+    func printTranscript() {
+        let view = NSTextView(frame: NSRect(x: 0, y: 0, width: 540, height: 800))
+        view.string = title + "\n\n" + activeText
+        view.font = NSFont.systemFont(ofSize: fontSize)
+        view.isEditable = false
+        NSPrintOperation(view: view).run()
+    }
     func openSermon(_ item: Sermon) {
         selectedID = item.id; title = item.title; original = item.original; cleaned = item.cleaned
         sermonDate = ISO8601DateFormatter().date(from: item.date + "T12:00:00Z") ?? Date()
-        audio = nil; page = "Transcript editor"
+        segments = item.segments ?? []; audio = nil; player = nil; page = "Transcript editor"
     }
     func clean(_ text: String) -> String {
         text.replacingOccurrences(of: "\\b(um|uh|erm)\\b[ ,]*", with: "", options: [.regularExpression, .caseInsensitive])
