@@ -26,10 +26,22 @@ for bundle in "$BIN"/*.bundle; do
   [[ -d "$bundle" ]] || continue
   cp -R "$bundle" "$APP/Contents/Resources/"
 done
+FRAMEWORK="$(find "$PWD/.build/artifacts" -type d -name Sparkle.framework -print -quit)"
+[[ -n "$FRAMEWORK" ]] || { echo "Sparkle framework not found"; exit 1; }
+mkdir -p "$APP/Contents/Frameworks"
+ditto "$FRAMEWORK" "$APP/Contents/Frameworks/Sparkle.framework"
+if ! otool -l "$APP/Contents/MacOS/SermonStudio" | grep -q '@executable_path/../Frameworks'; then
+  install_name_tool -add_rpath '@executable_path/../Frameworks' "$APP/Contents/MacOS/SermonStudio"
+fi
+if [[ -n "${SERMON_UPDATE_PUBLIC_KEY:-}" ]]; then
+  /usr/libexec/PlistBuddy -c "Add :SUPublicEDKey string $SERMON_UPDATE_PUBLIC_KEY" "$APP/Contents/Info.plist"
+  /usr/libexec/PlistBuddy -c "Add :SUFeedURL string https://jrcrosby91-tech.github.io/Sermon-Studio/appcast.xml" "$APP/Contents/Info.plist"
+  /usr/libexec/PlistBuddy -c "Add :SUAllowsAutomaticUpdates bool false" "$APP/Contents/Info.plist"
+fi
 plutil -lint "$APP/Contents/Info.plist"
-codesign --force --sign - "$APP"
+codesign --force --deep --sign - "$APP"
 codesign --verify --strict "$APP"
 ln -s /Applications "$STAGE/Applications"
 hdiutil create -volname "Sermon Studio" -srcfolder "$STAGE" -ov -format UDZO "$PWD/dist/Sermon-Studio-macOS-arm64.dmg"
 echo "Installer ready: $PWD/dist/Sermon-Studio-macOS-arm64.dmg"
-open -R "$PWD/dist/Sermon-Studio-macOS-arm64.dmg"
+if [[ -z "${CI:-}" ]]; then open -R "$PWD/dist/Sermon-Studio-macOS-arm64.dmg"; fi
