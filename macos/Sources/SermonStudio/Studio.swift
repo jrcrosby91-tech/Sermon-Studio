@@ -60,7 +60,7 @@ struct StudioView: View {
     private var activeText: String { useCleaned ? cleaned : original }
     private var references: [String] {
         let books = "Genesis|Exodus|Leviticus|Numbers|Deuteronomy|Joshua|Judges|Ruth|Samuel|Kings|Chronicles|Ezra|Nehemiah|Esther|Job|Psalms?|Proverbs|Ecclesiastes|Song of Solomon|Isaiah|Jeremiah|Lamentations|Ezekiel|Daniel|Hosea|Joel|Amos|Obadiah|Jonah|Micah|Nahum|Habakkuk|Zephaniah|Haggai|Zechariah|Malachi|Matthew|Mark|Luke|John|Acts|Romans|Corinthians|Galatians|Ephesians|Philippians|Colossians|Thessalonians|Timothy|Titus|Philemon|Hebrews|James|Peter|Jude|Revelation"
-        let pattern = "\\b(?:[123]\\s*)?(?:" + books + ")\\s+\\d+(?::\\d+(?:[-–]\\d+)?)?"
+        let pattern = "\\\\b(?:[123]\\\\s*)?(?:" + books + ")\\\\s+\\\\d+(?::\\\\d+(?:[-–]\\\\d+)?)?"
         guard let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]) else { return [] }
         let source = activeText as NSString
         return Array(Set(regex.matches(in: activeText, range: NSRange(location: 0, length: source.length)).map { source.substring(with: $0.range) })).sorted()
