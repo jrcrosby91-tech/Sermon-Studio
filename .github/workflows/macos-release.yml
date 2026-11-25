@@ -24,6 +24,8 @@ jobs:
         run: |
           test "$(uname -m)" = arm64
           swift --version
+      - name: Prepare Sparkle without keychain download
+        run: bash macos/prepare-sparkle.sh
       - name: Build and publish
         env:
           GH_TOKEN: ${{ github.token }}
