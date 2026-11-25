@@ -33,7 +33,11 @@ ditto "$FRAMEWORK" "$APP/Contents/Frameworks/Sparkle.framework"
 if ! otool -l "$APP/Contents/MacOS/SermonStudio" | grep -q '@executable_path/../Frameworks'; then
   install_name_tool -add_rpath '@executable_path/../Frameworks' "$APP/Contents/MacOS/SermonStudio"
 fi
-if [[ -n "${SERMON_UPDATE_PUBLIC_KEY:-}" ]]; then
+SERMON_UPDATE_PUBLIC_KEY="${SERMON_UPDATE_PUBLIC_KEY:-aA1xrq1M6yud/bEMlOzTswjmIKOAZpMOrgR4zX8o0CE=}"
+if [[ "$SERMON_UPDATE_PUBLIC_KEY" != "aA1xrq1M6yud/bEMlOzTswjmIKOAZpMOrgR4zX8o0CE=" ]]; then
+  echo "Signing public key does not match the configured release key."; exit 1
+fi
+if [[ -n "$SERMON_UPDATE_PUBLIC_KEY" ]]; then
   /usr/libexec/PlistBuddy -c "Add :SUPublicEDKey string $SERMON_UPDATE_PUBLIC_KEY" "$APP/Contents/Info.plist"
   /usr/libexec/PlistBuddy -c "Add :SUFeedURL string https://jrcrosby91-tech.github.io/Sermon-Studio/appcast.xml" "$APP/Contents/Info.plist"
   /usr/libexec/PlistBuddy -c "Add :SUAllowsAutomaticUpdates bool false" "$APP/Contents/Info.plist"
