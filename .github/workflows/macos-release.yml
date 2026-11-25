@@ -15,11 +15,15 @@ concurrency:
   cancel-in-progress: false
 jobs:
   publish:
-    runs-on: macos-15
+    runs-on: macos-15-arm64
     steps:
       - uses: actions/checkout@v4
         with:
           ref: main
+      - name: Verify Apple Silicon runner
+        run: |
+          test "$(uname -m)" = arm64
+          swift --version
       - name: Build and publish
         env:
           GH_TOKEN: ${{ github.token }}
