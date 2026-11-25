@@ -25,10 +25,10 @@ workflows:
               raise SystemExit(f"Expected one Sparkle.xcframework, found {len(frameworks)}")
           framework = frameworks[0].relative_to(base).as_posix()
           (base / "Package.swift").write_text(
-              '// swift-tools-version: 5.9\\nimport PackageDescription\\n'
+              '// swift-tools-version: 5.9\nimport PackageDescription\n'
               'let package = Package(name: "Sparkle", platforms: [.macOS(.v10_13)], '
               'products: [.library(name: "Sparkle", targets: ["Sparkle"])], '
-              f'targets: [.binaryTarget(name: "Sparkle", path: "{framework}")])\\n'
+              f'targets: [.binaryTarget(name: "Sparkle", path: "{framework}")])\n'
           )
           manifest = Path("macos/Package.swift")
           source = manifest.read_text()
