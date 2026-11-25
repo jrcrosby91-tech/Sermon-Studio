@@ -1,0 +1,29 @@
+name: Build native macOS preview
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'macos/**'
+      - '.github/workflows/macos.yml'
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compile Apple Silicon application
+        working-directory: macos
+        run: swift build -c release --arch arm64
+      - name: Package app and disk image
+        run: |
+          mkdir -p "dist/Sermon Studio.app/Contents/MacOS"
+          cp macos/.build/arm64-apple-macosx/release/SermonStudio "dist/Sermon Studio.app/Contents/MacOS/"
+          cp macos/Info.plist "dist/Sermon Studio.app/Contents/Info.plist"
+          codesign --force --sign - "dist/Sermon Studio.app"
+          ln -s /Applications dist/Applications
+          hdiutil create -volname "Sermon Studio" -srcfolder dist -ov -format UDZO Sermon-Studio-macOS-arm64.dmg
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Sermon-Studio-macOS-arm64
+          path: Sermon-Studio-macOS-arm64.dmg
