@@ -69,8 +69,8 @@ workflows:
       groups:
         - sermon_studio_release
       vars:
-        SERMON_VERSION: "3.0.3"
-        SERMON_BUILD_NUMBER: "4"
+        SERMON_VERSION: "3.0.4"
+        SERMON_BUILD_NUMBER: "5"
     scripts:
       - name: Validate release credentials and version
         script: |
