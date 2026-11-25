@@ -2,6 +2,16 @@ import SwiftUI
 import AppKit
 import AVKit
 import WhisperKit
+import Sparkle
+
+@MainActor final class StudioUpdates: ObservableObject {
+    let controller: SPUStandardUpdaterController?
+    init() {
+        if Bundle.main.object(forInfoDictionaryKey: "SUPublicEDKey") != nil {
+            controller = SPUStandardUpdaterController(startingUpdater: true, updaterDelegate: nil, userDriverDelegate: nil)
+        } else { controller = nil }
+    }
+}
 
 struct Sermon: Codable, Identifiable {
     var id = UUID().uuidString
@@ -16,7 +26,8 @@ struct Sermon: Codable, Identifiable {
 struct StudioView: View {
     @AppStorage("defaultModel") private var model = "small.en"
     @AppStorage("exportFolder") private var folder = ""
-    @State private var page = "New sermon"
+    @State private var page: String? = "New sermon"
+    @StateObject private var updates = StudioUpdates()
     @State private var audio: URL?
     @State private var player = AVPlayer()
     @State private var title = ""
@@ -35,7 +46,7 @@ struct StudioView: View {
             List(["New sermon", "Transcript editor", "Sermon library", "Settings"], id: \.self, selection: $page) { Text($0).tag($0) }
         } detail: {
             VStack(alignment: .leading, spacing: 16) {
-                Text(page).font(.largeTitle.bold())
+                Text(page ?? "New sermon").font(.largeTitle.bold())
                 if page == "New sermon" {
                     Button("Choose audio recording…", action: chooseAudio)
                     Text(audio?.lastPathComponent ?? "No recording selected")
@@ -55,6 +66,13 @@ struct StudioView: View {
                     Button("Choose default export folder…", action: chooseFolder)
                     Text(folder.isEmpty ? "Ask when exporting" : folder)
                     Button("Reset export folder") { folder = "" }
+                    Divider()
+                    Text("Software updates").font(.headline)
+                    if let controller = updates.controller {
+                        Button("Check for updates…") { controller.checkForUpdates(nil) }.disabled(busy)
+                        Toggle("Automatically check for updates", isOn: Binding(get: { controller.updater.automaticallyChecksForUpdates }, set: { controller.updater.automaticallyChecksForUpdates = $0 }))
+                        Text("Updates are installed only with your approval. Save edits and finish transcription before installing.").font(.caption)
+                    } else { Text("Signed update feed is not configured for this build.").foregroundStyle(.secondary) }
                 }
                 Spacer()
                 if audio != nil { VideoPlayer(player: player).frame(height: 65) }
@@ -79,7 +97,7 @@ struct StudioView: View {
                 let kit = try await WhisperKit(WhisperKitConfig(model: chosen))
                 try Task.checkCancellation()
                 status = "Transcribing locally…"
-                let results = try await kit.transcribe(audioPath: audio.path)
+                let results: [TranscriptionResult] = try await kit.transcribe(audioPath: audio.path)
                 try Task.checkCancellation()
                 original = results.map { $0.text }.joined(separator: " ")
                 cleaned = original.replacingOccurrences(of: "\\b(um|uh|erm)\\b[ ,]*", with: "", options: [.regularExpression, .caseInsensitive])
