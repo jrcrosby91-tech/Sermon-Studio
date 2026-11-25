@@ -52,6 +52,14 @@ struct StudioView: View {
     @State private var replacement = ""
     @State private var compare = false
     @AppStorage("editorFontSize") private var fontSize = 18.0
+    @AppStorage("appearanceMode") private var appearanceMode = "system"
+    private var preferredAppearance: ColorScheme? {
+        switch appearanceMode {
+        case "light": return .light
+        case "dark": return .dark
+        default: return nil
+        }
+    }
     @State private var sermonDate = Date()
     @State private var segments: [SermonSegment] = []
     @State private var player: AVPlayer?
@@ -163,7 +171,7 @@ struct StudioView: View {
                                 }
                             }
                         }
-                        HStack { Button("Save to library", action: save); Button("Export TXT") { export("txt") }; Button("Export Markdown") { export("md") }; Button("Export RTF") { export("rtf") }; Button("Export SRT") { export("srt") }; Button("Export VTT") { export("vtt") }; Button("Print / PDF") { printTranscript() } }
+                        HStack { Button("Save to library", action: save); Button("Export TXT") { export("txt") }; Button("Export Markdown") { export("md") }; Button("Export RTF") { export("rtf") }; Button("Export DOCX") { export("docx") }; Button("Export SRT") { export("srt") }; Button("Export VTT") { export("vtt") }; Button("Print / PDF") { printTranscript() } }
                         }
                     }
                 } else if page == "Sermon library" {
@@ -180,6 +188,11 @@ struct StudioView: View {
                         Slider(value: $fontSize, in: 16...24, step: 2)
                         Text("\(Int(fontSize)) pt")
                     }
+                    Picker("Appearance", selection: $appearanceMode) {
+                        Text("Automatic (System)").tag("system")
+                        Text("Light").tag("light")
+                        Text("Dark").tag("dark")
+                    }
                     Button("Choose default export folder…", action: chooseFolder)
                     Text(folder.isEmpty ? "Ask when exporting" : folder)
                     Button("Reset export folder") { folder = "" }
@@ -194,7 +207,7 @@ struct StudioView: View {
                 Spacer()
                 Text(status).foregroundStyle(.secondary).textSelection(.enabled)
             }.padding(24)
-        }.onAppear { if let data = try? Data(contentsOf: archiveURL), let items = try? JSONDecoder().decode([Sermon].self, from: data) { library = items } }
+        }.preferredColorScheme(preferredAppearance).onAppear { if let data = try? Data(contentsOf: archiveURL), let items = try? JSONDecoder().decode([Sermon].self, from: data) { library = items } }
     }
     var modelPicker: some View { Picker("Default model", selection: $model) { ForEach(models, id: \.self) { Text($0).tag($0) } }.disabled(busy) }
     func chooseAudio() {
@@ -272,6 +285,8 @@ struct StudioView: View {
                     (ext == "srt" ? String(i + 1) + "\n" : "") + stamp(segment.start) + " --> " + stamp(segment.end) + "\n" + segment.text
                 }
                 try ((ext == "vtt" ? "WEBVTT\n\n" : "") + entries.joined(separator: "\n\n")).write(to: url, atomically: true, encoding: .utf8)
+            } else if ext == "docx" {
+                try exportDOCX(to: url, text: text)
             } else if ext == "rtf" {
                 let attributed = NSAttributedString(string: text)
                 let data = try attributed.data(from: NSRange(location: 0, length: attributed.length), documentAttributes: [.documentType: NSAttributedString.DocumentType.rtf])
@@ -281,6 +296,49 @@ struct StudioView: View {
             }
             status = "Exported to " + url.path
         } catch { status = error.localizedDescription }
+    }
+    private func exportDOCX(to destination: URL, text: String) throws {
+        let fm = FileManager.default
+        let temp = fm.temporaryDirectory.appendingPathComponent("sermon-docx-" + UUID().uuidString, isDirectory: true)
+        try fm.createDirectory(at: temp.appendingPathComponent("word"), withIntermediateDirectories: true)
+        try fm.createDirectory(at: temp.appendingPathComponent("_rels"), withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: temp) }
+        func xml(_ value: String) -> String {
+            value.replacingOccurrences(of: "&", with: "&amp;")
+                .replacingOccurrences(of: "<", with: "&lt;")
+                .replacingOccurrences(of: ">", with: "&gt;")
+                .replacingOccurrences(of: "\"", with: "&quot;")
+                .replacingOccurrences(of: "'", with: "&apos;")
+        }
+        func paragraph(_ value: String, heading: Bool = false) -> String {
+            let run = "<w:r><w:rPr>" + (heading ? "<w:b/><w:sz w:val=\"32\"/>" : "") + "</w:rPr><w:t xml:space=\"preserve\">" + xml(value) + "</w:t></w:r>"
+            return "<w:p>" + run + "</w:p>"
+        }
+        let lines = text.components(separatedBy: .newlines)
+        let body = paragraph(title.isEmpty ? "Sermon" : title, heading: true)
+            + paragraph(DateFormatter.localizedString(from: sermonDate, dateStyle: .long, timeStyle: .none))
+            + "<w:p/>"
+            + lines.map { paragraph($0) }.joined()
+        let document = "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?><w:document xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\"><w:body>"
+            + body + "<w:sectPr/></w:body></w:document>"
+        let types = "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?><Types xmlns=\"http://schemas.openxmlformats.org/package/2006/content-types\"><Default Extension=\"rels\" ContentType=\"application/vnd.openxmlformats-package.relationships+xml\"/><Default Extension=\"xml\" ContentType=\"application/xml\"/><Override PartName=\"/word/document.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml\"/></Types>"
+        let rels = "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?><Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\"><Relationship Id=\"rId1\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument\" Target=\"word/document.xml\"/></Relationships>"
+        try document.write(to: temp.appendingPathComponent("word/document.xml"), atomically: true, encoding: .utf8)
+        try types.write(to: temp.appendingPathComponent("[Content_Types].xml"), atomically: true, encoding: .utf8)
+        try rels.write(to: temp.appendingPathComponent("_rels/.rels"), atomically: true, encoding: .utf8)
+        let archive = fm.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".docx")
+        defer { try? fm.removeItem(at: archive) }
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/zip")
+        process.arguments = ["-q", "-r", archive.path, "[Content_Types].xml", "_rels", "word"]
+        process.currentDirectoryURL = temp
+        try process.run()
+        process.waitUntilExit()
+        guard process.terminationStatus == 0 else {
+            throw NSError(domain: "SermonStudio.DOCX", code: Int(process.terminationStatus), userInfo: [NSLocalizedDescriptionKey: "Could not create Word document."])
+        }
+        if fm.fileExists(atPath: destination.path) { try fm.removeItem(at: destination) }
+        try fm.moveItem(at: archive, to: destination)
     }
     func printTranscript() {
         let view = NSTextView(frame: NSRect(x: 0, y: 0, width: 540, height: 800))
