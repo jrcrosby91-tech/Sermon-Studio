@@ -26,7 +26,10 @@ for bundle in "$BIN"/*.bundle; do
   [[ -d "$bundle" ]] || continue
   cp -R "$bundle" "$APP/Contents/Resources/"
 done
-FRAMEWORK="$(find "$PWD/.build/artifacts" -type d -name Sparkle.framework -print -quit)"
+FRAMEWORK="$(find "$PWD/.build/artifacts" -type d -name Sparkle.framework -print -quit 2>/dev/null || true)"
+if [[ -z "$FRAMEWORK" && -d "$PWD/.codemagic-sparkle" ]]; then
+  FRAMEWORK="$(find "$PWD/.codemagic-sparkle" -type d -name Sparkle.framework -print -quit)"
+fi
 [[ -n "$FRAMEWORK" ]] || { echo "Sparkle framework not found"; exit 1; }
 mkdir -p "$APP/Contents/Frameworks"
 ditto "$FRAMEWORK" "$APP/Contents/Frameworks/Sparkle.framework"
