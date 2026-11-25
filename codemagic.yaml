@@ -11,7 +11,18 @@ workflows:
           set -euo pipefail
           uname -m
           swift --version
+          set +e
           CI=1 SERMON_VERSION=3.0.3 SERMON_BUILD_NUMBER=4 bash macos/build-local.sh
+          result=$?
+          if [ "$result" -ne 0 ]; then
+            echo '========== BUILD ERRORS =========='
+            if [ -f macos/dist/build.log ]; then
+              grep -n -E -C 4 'error:|fatal error:|BUILD FAILED|Build failed|failed to' macos/dist/build.log | tail -n 180 || true
+              echo '========== LAST 100 LOG LINES =========='
+              tail -n 100 macos/dist/build.log
+            fi
+          fi
+          exit "$result"
     artifacts:
       - macos/dist/*.dmg
       - macos/dist/*.zip
