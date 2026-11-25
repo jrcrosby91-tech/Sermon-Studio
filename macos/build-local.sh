@@ -39,6 +39,8 @@ if [[ -n "${SERMON_UPDATE_PUBLIC_KEY:-}" ]]; then
   /usr/libexec/PlistBuddy -c "Add :SUAllowsAutomaticUpdates bool false" "$APP/Contents/Info.plist"
 fi
 plutil -lint "$APP/Contents/Info.plist"
+echo "Removing extended attributes from staged application..."
+xattr -cr "$APP"
 codesign --force --deep --sign - "$APP"
 codesign --verify --strict "$APP"
 ln -s /Applications "$STAGE/Applications"
