@@ -1,6 +1,6 @@
 import SwiftUI
 import AppKit
-import AVKit
+import UniformTypeIdentifiers
 import WhisperKit
 import Sparkle
 
@@ -29,7 +29,6 @@ struct StudioView: View {
     @State private var page: String? = "New sermon"
     @StateObject private var updates = StudioUpdates()
     @State private var audio: URL?
-    @State private var player = AVPlayer()
     @State private var title = ""
     @State private var original = ""
     @State private var cleaned = ""
@@ -48,7 +47,7 @@ struct StudioView: View {
             VStack(alignment: .leading, spacing: 16) {
                 Text(page ?? "New sermon").font(.largeTitle.bold())
                 if page == "New sermon" {
-                    Button("Choose audio recording…", action: chooseAudio)
+                    Button("Choose audio recording…", action: chooseAudio).disabled(busy)
                     Text(audio?.lastPathComponent ?? "No recording selected")
                     modelPicker
                     Button("Transcribe locally", action: start).disabled(audio == nil || busy)
@@ -60,7 +59,7 @@ struct StudioView: View {
                     HStack { Button("Save to library", action: save); Button("Export TXT") { export("txt") }; Button("Export Markdown") { export("md") } }
                 } else if page == "Sermon library" {
                     Button("Import web archive…", action: importArchive)
-                    List(library) { item in Button(item.date + "  " + item.title) { selectedID = item.id; title = item.title; original = item.original; cleaned = item.cleaned; audio = nil; player.replaceCurrentItem(with: nil); page = "Transcript editor" } }
+                    List(library) { item in Button(item.date + "  " + item.title) { selectedID = item.id; title = item.title; original = item.original; cleaned = item.cleaned; audio = nil; page = "Transcript editor" } }
                 } else {
                     modelPicker
                     Button("Choose default export folder…", action: chooseFolder)
@@ -75,15 +74,30 @@ struct StudioView: View {
                     } else { Text("Signed update feed is not configured for this build.").foregroundStyle(.secondary) }
                 }
                 Spacer()
-                if audio != nil { VideoPlayer(player: player).frame(height: 65) }
                 Text(status).foregroundStyle(.secondary).textSelection(.enabled)
             }.padding(24)
         }.onAppear { if let data = try? Data(contentsOf: archiveURL), let items = try? JSONDecoder().decode([Sermon].self, from: data) { library = items } }
     }
     var modelPicker: some View { Picker("Default model", selection: $model) { ForEach(models, id: \.self) { Text($0).tag($0) } }.disabled(busy) }
     func chooseAudio() {
-        let p = NSOpenPanel(); p.canChooseDirectories = false; p.allowsMultipleSelection = false
-        if p.runModal() == .OK, let url = p.url { audio = url; player.replaceCurrentItem(with: AVPlayerItem(url: url)); title = url.deletingPathExtension().lastPathComponent; selectedID = nil }
+        let p = NSOpenPanel()
+        p.canChooseDirectories = false
+        p.canChooseFiles = true
+        p.allowsMultipleSelection = false
+        p.allowedContentTypes = [.audio]
+        p.begin { response in
+            guard response == .OK, let url = p.url else { return }
+            DispatchQueue.main.async {
+                guard FileManager.default.isReadableFile(atPath: url.path) else {
+                    status = "Cannot read the selected recording."
+                    return
+                }
+                audio = url
+                title = url.deletingPathExtension().lastPathComponent
+                selectedID = nil
+                status = "Recording selected. Ready to transcribe."
+            }
+        }
     }
     func chooseFolder() {
         let p = NSOpenPanel(); p.canChooseDirectories = true; p.canChooseFiles = false
