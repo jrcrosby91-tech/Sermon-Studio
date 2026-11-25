@@ -4,6 +4,9 @@ let archive=[];try{archive=JSON.parse(localStorage.getItem('sermonArchive')||'[]
 const models={base:'onnx-community/whisper-base.en',small:'onnx-community/whisper-small.en',medium:'onnx-community/whisper-medium.en',turbo:'onnx-community/whisper-large-v3-turbo'};
 $('model').onchange=()=>{$('run').disabled=true;status('Prepare the selected model before transcribing.')};
 const status=s=>$('status').textContent=s;
+const defaultSelect=$('defaultModel');
+if(defaultSelect){let preference='small';try{let saved=localStorage.getItem('sermonDefaultModel');if(Object.hasOwn(models,saved))preference=saved}catch{}defaultSelect.value=preference;$('model').value=preference;defaultSelect.onchange=()=>{let value=defaultSelect.value;try{localStorage.setItem('sermonDefaultModel',value);$('defaultModelNote').textContent='Default model saved on this device.'}catch{$('defaultModelNote').textContent='Could not save preference permanently.'}if(!busy&&$('model').value!==value){$('model').value=value;$('model').dispatchEvent(new Event('change'))}else if(busy){$('defaultModelNote').textContent+=' Applies after reopening the app; current transcription is unchanged.'}}}
+
 const punctuate=s=>s.replace(/\s+([,.;:!?])/g,'$1').replace(/(^|[.!?]\s+)([a-z])/g,(_,p,l)=>p+l.toUpperCase()).replace(/\bi\b/g,'I').trim().replace(/([^.!?…])$/,'$1.');
 const clean=s=>s.replace(/\b(um|uh|erm)\b[ ,]*/gi,'').replace(/ +/g,' ').trim();
 function persist(){localStorage.setItem('sermonArchive',JSON.stringify(archive))}
