@@ -1,0 +1,33 @@
+name: Publish signed macOS release
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Version (e.g. 3.0.1)
+        required: true
+      build:
+        description: Increasing integer build number
+        required: true
+permissions:
+  contents: write
+concurrency:
+  group: macos-release
+  cancel-in-progress: false
+jobs:
+  publish:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - name: Build and publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
+          VERSION: ${{ inputs.version }}
+          BUILD: ${{ inputs.build }}
+        run: |
+          test -n "$SPARKLE_PRIVATE_KEY" || { echo "Configure SPARKLE_PRIVATE_KEY first"; exit 1; }
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          bash macos/release.sh "$VERSION" "$BUILD"
