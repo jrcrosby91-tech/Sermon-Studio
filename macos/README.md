@@ -1,0 +1,1 @@
+Native 3.0 preview. Requires macOS 14+ and Apple Silicon. Run swift build in this directory or use the GitHub Actions macOS workflow. Initial model download requires internet. Import web JSON backups through Sermon library. TXT and Markdown exports only in this preview. Ad-hoc signed, not notarized. Existing web app remains separate.
