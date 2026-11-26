@@ -81,7 +81,7 @@ public sealed partial class MainWindow
         sidebar.Children.Add(new TextBlock { Text = "SERMON STUDIO", FontSize = 17, Foreground = new SolidColorBrush(Microsoft.UI.Colors.White), Margin = new Thickness(0,12,0,20) });
         void Navigate(string name, Action action) {
             var button = new Button { Content = name, HorizontalAlignment = HorizontalAlignment.Stretch };
-            button.Click += (_, _) => { PageTitle.Text = name; action(); };
+            button.Click += (_, _) => { PageTitle.Text = name; tools.Visibility=Visibility.Visible; action(); };
             sidebar.Children.Add(button);
         }
         void Show(bool transcript, bool outline, bool library) {
@@ -97,7 +97,13 @@ public sealed partial class MainWindow
         Navigate("Sermon outlines", () => Show(true,true,false));
         Navigate("Sermon library", () => Show(false,false,true));
         Navigate("Full workspace", () => Show(true,true,true));
-        Navigate("Settings", () => Show(false,false,true));
+        Navigate("Settings", () => { Show(false,false,true); tools.Visibility=Visibility.Collapsed; });
+        var resize = new Slider { Header="Transcript / outline width", Minimum=20, Maximum=80, Value=50 };
+        resize.ValueChanged += (_,_) => { if(Transcript.Visibility==Visibility.Visible && Outline.Visibility==Visibility.Visible) { workspace.ColumnDefinitions[0].Width=new GridLength(resize.Value,GridUnitType.Star);workspace.ColumnDefinitions[1].Width=new GridLength(100-resize.Value,GridUnitType.Star); } };
+        sidebar.Children.Add(resize);
+        var theme = new ComboBox { Header="Appearance" }; theme.Items.Add("System");theme.Items.Add("Light");theme.Items.Add("Dark");theme.SelectedIndex=0;
+        theme.SelectionChanged += (_,_)=>shell.RequestedTheme=theme.SelectedIndex==1?ElementTheme.Light:theme.SelectedIndex==2?ElementTheme.Dark:ElementTheme.Default;
+        sidebar.Children.Add(theme);
         shell.Children.Add(sidebar); Grid.SetColumn(root,1); shell.Children.Add(root);
         Content = shell;
     }
