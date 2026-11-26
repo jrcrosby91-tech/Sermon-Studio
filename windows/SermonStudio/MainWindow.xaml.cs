@@ -20,7 +20,10 @@ public sealed partial class MainWindow : Window
     private bool _loading;
     private CalendarDatePicker? _sermonDate;
     private TextBox? _speaker, _primaryScripture;
-    private TextBlock? _saveIndicator;
+    private TextBlock? _saveIndicator, _libraryCount;
+    private TextBox? _librarySearch, _sermonTags;
+    private ComboBox? _librarySort;
+    private CheckBox? _libraryFavorites, _sermonFavorite;
 
     public MainWindow()
     {
@@ -64,7 +67,11 @@ public sealed partial class MainWindow : Window
     {
         var wasLoading = _loading;
         _loading = true;
-        var items = _library.OrderByDescending(x => x.Date).ToList();
+        var query=(_librarySearch?.Text??"").Trim();
+        var terms=query.Split(' ',StringSplitOptions.RemoveEmptyEntries);
+        IEnumerable<SermonRecord> filtered=_library.Where(x=>(_libraryFavorites?.IsChecked!=true||x.Favorite)&&terms.All(term=>new[]{x.Title,x.Date,x.Speaker,x.PrimaryScripture,x.Tags,x.Original,x.Cleaned,x.Outline}.Any(value=>value?.Contains(term,StringComparison.OrdinalIgnoreCase)==true)));
+        var items=(_librarySort?.SelectedIndex switch {1=>filtered.OrderBy(x=>x.Date),2=>filtered.OrderBy(x=>x.Title,StringComparer.OrdinalIgnoreCase),3=>filtered.OrderByDescending(x=>x.LastEdited),_=>filtered.OrderByDescending(x=>x.Date)}).ToList();
+        if(_libraryCount!=null)_libraryCount.Text=$"{items.Count} of {_library.Count} sermons";
         LibraryList.ItemsSource = items;
         // Keep the current sermon highlighted after autosave/restore rebuilds the list.
         LibraryList.SelectedItem = items.FirstOrDefault(x => x.Id == _selectedId);
@@ -90,6 +97,8 @@ public sealed partial class MainWindow : Window
         if(_sermonDate!=null) _sermonDate.Date=DateTimeOffset.TryParse(item.Date,out var date)?date:null;
         if(_speaker!=null) _speaker.Text=item.Speaker??"";
         if(_primaryScripture!=null) _primaryScripture.Text=item.PrimaryScripture??"";
+        if(_sermonTags!=null)_sermonTags.Text=item.Tags??"";
+        if(_sermonFavorite!=null)_sermonFavorite.IsChecked=item.Favorite;
         if(_saveIndicator!=null) _saveIndicator.Text="Saved in library";
         _showCleaned = false; _originalText = item.Original; _cleanedText = item.Cleaned;
         _srt = item.Srt; _vtt = item.Vtt;
@@ -110,6 +119,8 @@ public sealed partial class MainWindow : Window
         if(_sermonDate!=null) _sermonDate.Date=DateTimeOffset.Now;
         if(_speaker!=null) _speaker.Text="";
         if(_primaryScripture!=null) _primaryScripture.Text="";
+        if(_sermonTags!=null)_sermonTags.Text="";
+        if(_sermonFavorite!=null)_sermonFavorite.IsChecked=false;
         if(_saveIndicator!=null) _saveIndicator.Text="Unsaved draft";
         _showCleaned = false; _originalText = ""; _cleanedText = ""; _srt = ""; _vtt = "";
         Transcript.Text = "";
@@ -195,6 +206,9 @@ public sealed partial class MainWindow : Window
             if(item.Srt != _srt || item.Segments == null) item.Segments=ParseSegments(_srt);
             item.Srt = _srt; item.Vtt = _vtt;
             item.Outline = Outline.Text;
+            if(_sermonTags!=null)item.Tags=_sermonTags.Text;
+            if(_sermonFavorite!=null)item.Favorite=_sermonFavorite.IsChecked==true;
+            item.LastEdited=DateTimeOffset.UtcNow;
             if (string.IsNullOrWhiteSpace(item.Date)) item.Date = DateTime.Today.ToString("yyyy-MM-dd");
             Directory.CreateDirectory(Path.GetDirectoryName(_libraryPath)!);
             File.WriteAllText(_libraryPath + ".tmp", JsonSerializer.Serialize(_library, new JsonSerializerOptions { WriteIndented = true }));
@@ -230,6 +244,15 @@ public sealed class SermonRecord
     public string Date { get; set; } = "";
     public string Speaker { get; set; } = "";
     public string PrimaryScripture { get; set; } = "";
+    public string Tags {get;set;}="";
+    public bool Favorite {get;set;}
+    public DateTimeOffset LastEdited {get;set;}
+    [System.Text.Json.Serialization.JsonIgnore]
+    public string LibraryHeading => (Favorite?"★  ":"")+(string.IsNullOrWhiteSpace(Title)?"Untitled sermon":Title);
+    [System.Text.Json.Serialization.JsonIgnore]
+    public string LibraryDetails => string.Join(" · ",new[]{Date,Speaker,PrimaryScripture,Tags}.Where(x=>!string.IsNullOrWhiteSpace(x)));
+    [System.Text.Json.Serialization.JsonIgnore]
+    public string LibraryPreview {get{var value=string.IsNullOrWhiteSpace(Cleaned)?Original:Cleaned;value=System.Text.RegularExpressions.Regex.Replace(value??"",@"\s+"," ").Trim();return value.Length>150?value[..150]+"…":value;}}
     public string Original { get; set; } = "";
     public string Cleaned { get; set; } = "";
     public string Outline { get; set; } = "";
