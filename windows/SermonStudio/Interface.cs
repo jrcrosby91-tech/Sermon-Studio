@@ -59,7 +59,7 @@ public sealed partial class MainWindow
         var actions = Bar();
         ButtonFor(actions,"Clean",Clean_Click); ButtonFor(actions,"Original",Original_Click);
         var search = new StackPanel{Orientation=Orientation.Horizontal,Spacing=8};
-        FindText = Field(search,"Find","",130); ButtonFor(search,"Find",Find_Click);
+        FindText = Field(search,"Find","",130); ButtonFor(search,"Find",(_,_)=>{Transcript.Visibility=Visibility.Visible;Find_Click(this,null!);});
         Replacement = Field(actions,"Replace with","",130); ButtonFor(actions,"Replace all",Replace_Click);
         ButtonFor(actions,"Scripture",Scripture_Click); ButtonFor(actions,"Compare",Compare_Click);
         TranscriptionProgress = new ProgressBar { Height = 4 }; tools.Children.Add(TranscriptionProgress);
@@ -68,6 +68,15 @@ public sealed partial class MainWindow
         // Attach media controls only when an audio file is imported.
         var playback=new StackPanel{Spacing=4};
         _audioHost = playback;
+        var audioControls=new StackPanel{Orientation=Orientation.Horizontal,Spacing=8};
+        var audioTime=new TextBlock{Text="No recording loaded",VerticalAlignment=VerticalAlignment.Center};
+        void Skip(double seconds){try{if(_player==null)return;var session=_player.PlaybackSession;session.Position=TimeSpan.FromSeconds(Math.Clamp(session.Position.TotalSeconds+seconds,0,Math.Max(0,session.NaturalDuration.TotalSeconds)));}catch(Exception ex){Status.Text=ex.Message;}}
+        ButtonFor(audioControls,"−15 s",(_,_)=>Skip(-15));ButtonFor(audioControls,"+15 s",(_,_)=>Skip(15));
+        var speed=new ComboBox{Width=90};foreach(var rate in new[]{0.75,1.0,1.25,1.5,2.0})speed.Items.Add(rate);speed.SelectedIndex=1;
+        speed.SelectionChanged+=(_,_)=>{if(_player!=null&&speed.SelectedItem is double rate)_player.PlaybackSession.PlaybackRate=rate;};audioControls.Children.Add(speed);audioControls.Children.Add(audioTime);
+        playback.Children.Add(new ScrollViewer{Content=audioControls,HorizontalScrollMode=ScrollMode.Enabled,HorizontalScrollBarVisibility=ScrollBarVisibility.Auto,VerticalScrollMode=ScrollMode.Disabled});
+        var seek=new Slider{Minimum=0,Maximum=1,IsEnabled=false};playback.Children.Add(seek);bool updatingSeek=false;
+        seek.ValueChanged+=(_,e)=>{if(!updatingSeek&&_player!=null&&seek.IsEnabled)_player.PlaybackSession.Position=TimeSpan.FromSeconds(e.NewValue);};
         App.Log("Building interface: editors");
         var workspace = new Grid { ColumnSpacing = 10 };
         workspace.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1,GridUnitType.Star) });
@@ -97,22 +106,38 @@ public sealed partial class MainWindow
         Grid.SetRow(timedScroll,2);transcriptPanel.Children.Add(timedScroll);
         var preview=new StackPanel{Spacing=8};var previewScroll=new ScrollViewer{Content=preview,Visibility=Visibility.Collapsed};
         Grid.SetRow(previewScroll,1);outlinePanel.Children.Add(previewScroll);
+        var segmentRows=new List<(double Start,double End,Border Row)>();
+        Border? activeRow=null;string renderedSrt="";
         var timedToggle=new Button{Content="Timestamp view",HorizontalAlignment=HorizontalAlignment.Right};
         transcriptPanel.Children.Add(timedToggle);
-        timedToggle.Click+=(_,_)=>{
-            bool show=timedScroll.Visibility!=Visibility.Visible;
-            timed.Children.Clear();
-            if(show){
+        void RenderTimestamps(){
+            timed.Children.Clear();segmentRows.Clear();activeRow=null;renderedSrt=_srt;
+            {
                 foreach(var segment in ParseSegments(_srt)){
                     var row=new Grid{ColumnSpacing=10};row.ColumnDefinitions.Add(new ColumnDefinition{Width=GridLength.Auto});row.ColumnDefinitions.Add(new ColumnDefinition{Width=new GridLength(1,GridUnitType.Star)});
                     var stamp=new Button{Content=TimeSpan.FromSeconds(segment.Start).ToString(@"hh\:mm\:ss"),Foreground=gold};
                     stamp.Click+=(_,_)=>{if(_player!=null)_player.PlaybackSession.Position=TimeSpan.FromSeconds(segment.Start);else Status.Text="Import the original recording to seek.";};
-                    var words=new TextBlock{Text=segment.Text,TextWrapping=TextWrapping.Wrap,FontSize=17,FontFamily=new FontFamily("Georgia")};Grid.SetColumn(words,1);row.Children.Add(stamp);row.Children.Add(words);timed.Children.Add(row);
+                    var words=new TextBlock{Text=segment.Text,TextWrapping=TextWrapping.Wrap,FontSize=17,FontFamily=new FontFamily("Georgia")};Grid.SetColumn(words,1);row.Children.Add(stamp);row.Children.Add(words);var segmentCard=new Border{Child=row,Padding=new Thickness(8),CornerRadius=new CornerRadius(6),BorderThickness=new Thickness(1)};timed.Children.Add(segmentCard);segmentRows.Add((segment.Start,segment.End,segmentCard));
                 }
                 if(timed.Children.Count==0)timed.Children.Add(new TextBlock{Text="No timestamps available."});
             }
+        }
+        timedToggle.Click+=(_,_)=>{
+            bool show=timedScroll.Visibility!=Visibility.Visible;if(show)RenderTimestamps();
             timedScroll.Visibility=show?Visibility.Visible:Visibility.Collapsed;Transcript.Visibility=show?Visibility.Collapsed:Visibility.Visible;timedToggle.Content=show?"Edit transcript":"Timestamp view";
         };
+        var follow=new CheckBox{Content="Follow playback",IsChecked=true};search.Children.Add(follow);
+        var audioTimer=DispatcherQueue.CreateTimer();audioTimer.Interval=TimeSpan.FromMilliseconds(250);
+        audioTimer.Tick+=(_,_)=>{try{
+            if(timedScroll.Visibility==Visibility.Visible&&renderedSrt!=_srt)RenderTimestamps();
+            if(_player==null){seek.IsEnabled=false;audioTime.Text="No recording loaded";if(activeRow!=null){activeRow.Background=null;activeRow.BorderBrush=null;activeRow=null;}return;}
+            var session=_player.PlaybackSession;var duration=session.NaturalDuration.TotalSeconds;var position=session.Position.TotalSeconds;
+            updatingSeek=true;seek.Maximum=Math.Max(1,duration);seek.Value=Math.Clamp(position,0,seek.Maximum);seek.IsEnabled=duration>0;updatingSeek=false;
+            audioTime.Text=session.Position.ToString(@"hh\:mm\:ss")+" / "+session.NaturalDuration.ToString(@"hh\:mm\:ss");
+            if(timedScroll.Visibility!=Visibility.Visible)return;
+            var next=segmentRows.FirstOrDefault(x=>position>=x.Start&&position<x.End).Row;
+            if(next!=activeRow){if(activeRow!=null){activeRow.Background=null;activeRow.BorderBrush=null;}activeRow=next;if(next!=null){next.Background=new SolidColorBrush(Windows.UI.Color.FromArgb(45,190,151,69));next.BorderBrush=gold;if(follow.IsChecked==true)next.StartBringIntoView();}}
+        }catch{updatingSeek=false;}};audioTimer.Start();Closed+=(_,_)=>audioTimer.Stop();
         var previewToggle=new Button{Content="Formatted view",HorizontalAlignment=HorizontalAlignment.Right};outlinePanel.Children.Add(previewToggle);
         previewToggle.Click+=(_,_)=>{
             bool show=previewScroll.Visibility!=Visibility.Visible;preview.Children.Clear();
@@ -138,6 +163,11 @@ public sealed partial class MainWindow
             workspace.ColumnDefinitions[1].Width=new GridLength(1-split,GridUnitType.Star);
         };
         divider.ManipulationCompleted+=(_,_)=>RememberWorkspace();
+        ButtonFor(search,"Undo",(_,_)=>{if(Transcript.CanUndo)Transcript.Undo();});ButtonFor(search,"Redo",(_,_)=>{if(Transcript.CanRedo)Transcript.Redo();});
+        var matchCount=new TextBlock{VerticalAlignment=VerticalAlignment.Bottom};search.Children.Add(matchCount);
+        void CountMatches(){var q=FindText.Text;matchCount.Text=string.IsNullOrWhiteSpace(q)?"":System.Text.RegularExpressions.Regex.Matches(Transcript.Text,System.Text.RegularExpressions.Regex.Escape(q),System.Text.RegularExpressions.RegexOptions.IgnoreCase).Count+" matches";}
+        FindText.TextChanged+=(_,_)=>CountMatches();Transcript.TextChanged+=(_,_)=>CountMatches();
+        FindText.KeyDown+=(_,e)=>{if(e.Key==Windows.System.VirtualKey.Enter){if(timedScroll.Visibility==Visibility.Visible){timedScroll.Visibility=Visibility.Collapsed;Transcript.Visibility=Visibility.Visible;timedToggle.Content="Timestamp view";}Find_Click(this,null!);e.Handled=true;}};
         Transcript.TextChanged += Editor_TextChanged; Outline.TextChanged += Outline_TextChanged; SermonTitle.TextChanged += Editor_TextChanged;
         App.Log("Building interface: library");
         var side = new StackPanel { Spacing = 8 };
