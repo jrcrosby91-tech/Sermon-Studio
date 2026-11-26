@@ -22,7 +22,7 @@ public sealed partial class MainWindow : Window
     public MainWindow()
     {
         _loading = true;
-        InitializeComponent();
+        BuildInterface();
         _autosave = DispatcherQueue.CreateTimer();
         _autosave.Interval = TimeSpan.FromMilliseconds(900);
         _autosave.Tick += (_, _) => { _autosave.Stop(); if (_selectedId != null && !_loading) Save(); };
