@@ -165,6 +165,7 @@ public sealed partial class MainWindow
             var next=segmentRows.FirstOrDefault(x=>position>=x.Start&&position<x.End).Row;
             if(next!=activeRow){if(activeRow!=null){activeRow.Background=null;activeRow.BorderBrush=null;}activeRow=next;if(next!=null){next.Background=new SolidColorBrush(Windows.UI.Color.FromArgb(45,190,151,69));next.BorderBrush=gold;if(follow.IsChecked==true)next.StartBringIntoView();}}
         }catch{updatingSeek=false;}};audioTimer.Start();Closed+=(_,_)=>{audioTimer.Stop();waveCancel?.Cancel();};
+        var divider = new Border { Width=5, CornerRadius=new CornerRadius(3), HorizontalAlignment=HorizontalAlignment.Right, Background=new SolidColorBrush(Microsoft.UI.Colors.SlateGray), ManipulationMode=Microsoft.UI.Xaml.Input.ManipulationModes.TranslateX };
         var previewToggle=new Button{Content="Formatted view",HorizontalAlignment=HorizontalAlignment.Right};outlinePanel.Children.Add(previewToggle);
         outlinePanel.RowDefinitions.Insert(1,new RowDefinition{Height=GridLength.Auto});
         Grid.SetRow(Outline,2);Grid.SetRow(previewScroll,2);
@@ -261,8 +262,6 @@ public sealed partial class MainWindow
             RenderOutline();previewScroll.Visibility=Visibility.Visible;Outline.Visibility=Visibility.Collapsed;previewToggle.Content="Edit outline";
         };
         Outline.TextChanged+=(_,_)=>{if(previewScroll.Visibility==Visibility.Visible)RenderOutline();};
-        var divider = new Border { Width=5, CornerRadius=new CornerRadius(3), HorizontalAlignment=HorizontalAlignment.Right, Background=new SolidColorBrush(Microsoft.UI.Colors.SlateGray), ManipulationMode=Microsoft.UI.Xaml.Input.ManipulationModes.TranslateX };
-        void SetWritingDivider(bool visible){divider.Visibility=visible?Visibility.Visible:Visibility.Collapsed;}
         Grid.SetColumn(divider,0); workspace.Children.Add(divider);
         editorCards[0].Margin=new Thickness(0,0,9,0);
         divider.ManipulationDelta += (_,e) => {
