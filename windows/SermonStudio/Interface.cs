@@ -56,6 +56,16 @@ public sealed partial class MainWindow
             Grid.SetColumn(editor,column); workspace.Children.Add(editor); return editor;
         }
         Transcript = Editor("Transcript",0); Outline = Editor("Sermon outline",1);
+        var divider = new Border { Width=8, HorizontalAlignment=HorizontalAlignment.Right, Background=new SolidColorBrush(Microsoft.UI.Colors.SlateGray), ManipulationMode=ManipulationModes.TranslateX };
+        Grid.SetColumn(divider,0); workspace.Children.Add(divider);
+        Transcript.Margin=new Thickness(0,0,12,0);
+        divider.ManipulationDelta += (_,e) => {
+            var total=workspace.ColumnDefinitions[0].ActualWidth+workspace.ColumnDefinitions[1].ActualWidth;
+            if(total<240)return;
+            var left=Math.Clamp(workspace.ColumnDefinitions[0].ActualWidth+e.Delta.Translation.X,120,total-120);
+            workspace.ColumnDefinitions[0].Width=new GridLength(left/total,GridUnitType.Star);
+            workspace.ColumnDefinitions[1].Width=new GridLength(1-left/total,GridUnitType.Star);
+        };
         Transcript.TextChanged += Editor_TextChanged; Outline.TextChanged += Outline_TextChanged; SermonTitle.TextChanged += Editor_TextChanged;
         App.Log("Building interface: library");
         var side = new StackPanel { Spacing = 8 };
@@ -73,7 +83,9 @@ public sealed partial class MainWindow
         Status = new TextBlock { Text = "Ready", TextWrapping = TextWrapping.Wrap }; Grid.SetRow(Status,3); root.Children.Add(Status);
         App.Log("Attaching interface");
         root.Loaded += (_, _) => App.Log("Root Loaded");
-        root.LayoutUpdated += OnFirstLayout;
+        EventHandler<object>? firstLayout=null;
+        firstLayout=(_,_)=>{root.LayoutUpdated-=firstLayout;App.Log("First layout completed");};
+        root.LayoutUpdated += firstLayout;
         var shell = new Grid();
         shell.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(190) });
         shell.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
@@ -85,6 +97,7 @@ public sealed partial class MainWindow
             sidebar.Children.Add(button);
         }
         void Show(bool transcript, bool outline, bool library) {
+            divider.Visibility=transcript && outline?Visibility.Visible:Visibility.Collapsed;
             Transcript.Visibility = transcript ? Visibility.Visible : Visibility.Collapsed;
             Outline.Visibility = outline ? Visibility.Visible : Visibility.Collapsed;
             scroll.Visibility = library ? Visibility.Visible : Visibility.Collapsed;
@@ -98,11 +111,13 @@ public sealed partial class MainWindow
         Navigate("Sermon library", () => Show(false,false,true));
         Navigate("Full workspace", () => Show(true,true,true));
         Navigate("Settings", () => { Show(false,false,true); tools.Visibility=Visibility.Collapsed; });
-        var resize = new Slider { Header="Transcript / outline width", Minimum=20, Maximum=80, Value=50 };
-        resize.ValueChanged += (_,_) => { if(Transcript.Visibility==Visibility.Visible && Outline.Visibility==Visibility.Visible) { workspace.ColumnDefinitions[0].Width=new GridLength(resize.Value,GridUnitType.Star);workspace.ColumnDefinitions[1].Width=new GridLength(100-resize.Value,GridUnitType.Star); } };
-        sidebar.Children.Add(resize);
         var theme = new ComboBox { Header="Appearance" }; theme.Items.Add("System");theme.Items.Add("Light");theme.Items.Add("Dark");theme.SelectedIndex=0;
-        theme.SelectionChanged += (_,_)=>shell.RequestedTheme=theme.SelectedIndex==1?ElementTheme.Light:theme.SelectedIndex==2?ElementTheme.Dark:ElementTheme.Default;
+        var settingsPath=Path.Combine(Path.GetDirectoryName(_libraryPath)!,"appearance.txt");
+        try { if(File.Exists(settingsPath)&&int.TryParse(File.ReadAllText(settingsPath),out var saved)&&saved>=0&&saved<=2)theme.SelectedIndex=saved; }catch{}
+        void ApplyTheme(){shell.RequestedTheme=theme.SelectedIndex==1?ElementTheme.Light:theme.SelectedIndex==2?ElementTheme.Dark:ElementTheme.Default;}
+        ApplyTheme();
+        theme.SelectionChanged += (_,_)=>{ApplyTheme();try{Directory.CreateDirectory(Path.GetDirectoryName(settingsPath)!);File.WriteAllText(settingsPath,theme.SelectedIndex.ToString());}catch{}};
+        sidebar.RequestedTheme=ElementTheme.Dark;
         sidebar.Children.Add(theme);
         shell.Children.Add(sidebar); Grid.SetColumn(root,1); shell.Children.Add(root);
         Content = shell;
