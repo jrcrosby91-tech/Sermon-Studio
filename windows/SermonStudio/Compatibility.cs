@@ -104,11 +104,3 @@ public sealed partial class MainWindow
         }finally{try{File.Delete(zip);if(Directory.Exists(staging))Directory.Delete(staging,true);}catch{}}
     }
 }
-public sealed class SermonSegment
-{
-    public string Id {get;set;}=Guid.NewGuid().ToString();
-    public double Start {get;set;}
-    public double End {get;set;}
-    public string Text {get;set;}="";
-    public double? Confidence {get;set;}
-}
