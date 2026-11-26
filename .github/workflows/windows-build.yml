@@ -37,10 +37,10 @@ jobs:
         run: |
           $engine = "$env:GITHUB_WORKSPACE/windows-publish/engines"
           New-Item -ItemType Directory -Force "$engine/whisper", "$engine/ffmpeg" | Out-Null
-          $release = Invoke-RestMethod "https://api.github.com/repos/ggml-org/whisper.cpp/releases/tags/v1.7.6"
-          $asset = $release.assets | Where-Object { $_.name -eq "whisper-bin-x64.zip" } | Select-Object -First 1
-          if (!$asset) { throw "Pinned Whisper x64 asset unavailable" }
-          Invoke-WebRequest $asset.browser_download_url -OutFile "$env:RUNNER_TEMP/whisper.zip"
+          # Download the verified, pinned release asset directly. This avoids the
+          # unauthenticated GitHub REST API rate limit shared by hosted runners.
+          $whisperUrl = "https://github.com/ggml-org/whisper.cpp/releases/download/v1.7.6/whisper-bin-x64.zip"
+          Invoke-WebRequest -Uri $whisperUrl -OutFile "$env:RUNNER_TEMP/whisper.zip" -MaximumRetryCount 3 -RetryIntervalSec 5
           Expand-Archive "$env:RUNNER_TEMP/whisper.zip" "$engine/whisper" -Force
           Invoke-WebRequest "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip" -OutFile "$env:RUNNER_TEMP/ffmpeg.zip"
           Expand-Archive "$env:RUNNER_TEMP/ffmpeg.zip" "$engine/ffmpeg" -Force
