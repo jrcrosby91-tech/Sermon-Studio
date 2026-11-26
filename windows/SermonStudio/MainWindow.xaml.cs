@@ -23,6 +23,10 @@ public sealed partial class MainWindow : Window
     private TextBlock? _saveIndicator, _libraryCount;
     private TextBox? _librarySearch, _sermonTags;
     private ComboBox? _librarySort;
+    private TextBox? _series, _collection, _filterSpeaker, _filterTag, _filterSeries, _filterCollection;
+    private CalendarDatePicker? _filterFrom, _filterTo;
+    private TextBlock? _libraryStats;
+    private ComboBox? _recentSermons;
     private CheckBox? _libraryFavorites, _sermonFavorite;
 
     public MainWindow()
@@ -69,7 +73,12 @@ public sealed partial class MainWindow : Window
         _loading = true;
         var query=(_librarySearch?.Text??"").Trim();
         var terms=query.Split(' ',StringSplitOptions.RemoveEmptyEntries);
-        IEnumerable<SermonRecord> filtered=_library.Where(x=>(_libraryFavorites?.IsChecked!=true||x.Favorite)&&terms.All(term=>new[]{x.Title,x.Date,x.Speaker,x.PrimaryScripture,x.Tags,x.Original,x.Cleaned,x.Outline}.Any(value=>value?.Contains(term,StringComparison.OrdinalIgnoreCase)==true)));
+        IEnumerable<SermonRecord> filtered=_library.Where(x=>(_libraryFavorites?.IsChecked!=true||x.Favorite)&&terms.All(term=>new[]{x.Title,x.Date,x.Speaker,x.PrimaryScripture,x.Tags,x.Series,x.Collection,x.Original,x.Cleaned,x.Outline}.Any(value=>value?.Contains(term,StringComparison.OrdinalIgnoreCase)==true)));
+        bool Contains(string? value,TextBox? field)=>string.IsNullOrWhiteSpace(field?.Text)||(value??"").Contains(field!.Text.Trim(),StringComparison.OrdinalIgnoreCase);
+        filtered=filtered.Where(x=>Contains(x.Speaker,_filterSpeaker)&&Contains(x.Tags,_filterTag)&&Contains(x.Series,_filterSeries)&&Contains(x.Collection,_filterCollection)&&
+            (_filterFrom?.Date==null&&_filterTo?.Date==null||DateTime.TryParse(x.Date,out var date)&&(_filterFrom?.Date==null||date.Date>=_filterFrom.Date.Value.Date)&&(_filterTo?.Date==null||date.Date<=_filterTo.Date.Value.Date)));
+        if(_libraryStats!=null)_libraryStats.Text=$"{_library.Count} sermons · {_library.Count(x=>x.Favorite)} favorites · {_library.Count(x=>!string.IsNullOrWhiteSpace(x.Outline))} outlines · {_library.Select(x=>x.Series).Where(x=>!string.IsNullOrWhiteSpace(x)).Distinct(StringComparer.OrdinalIgnoreCase).Count()} series";
+        if(_recentSermons!=null){_recentSermons.ItemsSource=_library.Where(x=>x.LastOpened!=default).OrderByDescending(x=>x.LastOpened).Take(8).ToList();_recentSermons.SelectedIndex=-1;}
         var items=(_librarySort?.SelectedIndex switch {1=>filtered.OrderBy(x=>x.Date),2=>filtered.OrderBy(x=>x.Title,StringComparer.OrdinalIgnoreCase),3=>filtered.OrderByDescending(x=>x.LastEdited),_=>filtered.OrderByDescending(x=>x.Date)}).ToList();
         if(_libraryCount!=null)_libraryCount.Text=$"{items.Count} of {_library.Count} sermons";
         LibraryList.ItemsSource = items;
@@ -90,6 +99,8 @@ public sealed partial class MainWindow : Window
         if (_autosave.IsRunning) { _autosave.Stop(); Save(); }
         _loading = true;
         _selectedId = item.Id;
+        item.LastOpened=DateTimeOffset.UtcNow;
+        try{PersistLibrary();}catch(Exception ex){Status.Text="Could not save recent history: "+ex.Message;}
         // Saving the previous sermon rebuilds the list; re-select the sermon the user clicked.
         if (LibraryList.SelectedItem is not SermonRecord current || current.Id != item.Id)
             LibraryList.SelectedItem = (LibraryList.ItemsSource as IEnumerable<SermonRecord>)?.FirstOrDefault(x => x.Id == item.Id);
@@ -98,6 +109,7 @@ public sealed partial class MainWindow : Window
         if(_speaker!=null) _speaker.Text=item.Speaker??"";
         if(_primaryScripture!=null) _primaryScripture.Text=item.PrimaryScripture??"";
         if(_sermonTags!=null)_sermonTags.Text=item.Tags??"";
+        if(_series!=null)_series.Text=item.Series??"";if(_collection!=null)_collection.Text=item.Collection??"";
         if(_sermonFavorite!=null)_sermonFavorite.IsChecked=item.Favorite;
         if(_saveIndicator!=null) _saveIndicator.Text="Saved in library";
         _showCleaned = false; _originalText = item.Original; _cleanedText = item.Cleaned;
@@ -120,6 +132,7 @@ public sealed partial class MainWindow : Window
         if(_speaker!=null) _speaker.Text="";
         if(_primaryScripture!=null) _primaryScripture.Text="";
         if(_sermonTags!=null)_sermonTags.Text="";
+        if(_series!=null)_series.Text="";if(_collection!=null)_collection.Text="";
         if(_sermonFavorite!=null)_sermonFavorite.IsChecked=false;
         if(_saveIndicator!=null) _saveIndicator.Text="Unsaved draft";
         _showCleaned = false; _originalText = ""; _cleanedText = ""; _srt = ""; _vtt = "";
@@ -207,6 +220,7 @@ public sealed partial class MainWindow : Window
             item.Srt = _srt; item.Vtt = _vtt;
             item.Outline = Outline.Text;
             if(_sermonTags!=null)item.Tags=_sermonTags.Text;
+            if(_series!=null)item.Series=_series.Text;if(_collection!=null)item.Collection=_collection.Text;
             if(_sermonFavorite!=null)item.Favorite=_sermonFavorite.IsChecked==true;
             item.LastEdited=DateTimeOffset.UtcNow;
             if (string.IsNullOrWhiteSpace(item.Date)) item.Date = DateTime.Today.ToString("yyyy-MM-dd");
@@ -218,6 +232,52 @@ public sealed partial class MainWindow : Window
             if(_saveIndicator!=null) _saveIndicator.Text="Saved at "+DateTime.Now.ToString("t");
         }
         catch (Exception ex) { Status.Text = "Save failed: " + ex.Message; if(_saveIndicator!=null) _saveIndicator.Text="Save failed"; }
+    }
+
+    private void PersistLibrary(){
+        Directory.CreateDirectory(Path.GetDirectoryName(_libraryPath)!);
+        File.WriteAllText(_libraryPath+".tmp",JsonSerializer.Serialize(_library,new JsonSerializerOptions{WriteIndented=true}));
+        File.Move(_libraryPath+".tmp",_libraryPath,true);
+    }
+    private async void ManageSermon(string action){
+        if(LibraryList.SelectedItem is not SermonRecord item){Status.Text="Select a sermon first.";return;}
+        if(_transcription!=null){Status.Text="Finish transcription first.";return;}
+        if(_autosave.IsRunning){_autosave.Stop();Save();if(_saveIndicator?.Text=="Save failed")return;}
+        var input=new TextBox{Text=action=="Duplicate"?item.Title+" (copy)":item.Title};
+        var dialog=new ContentDialog{XamlRoot=LibraryList.XamlRoot,Title=action+" sermon",Content=action=="Delete"?(object)("Delete “"+item.Title+"”? A recovery backup will be created first."):input,PrimaryButtonText=action,CloseButtonText="Cancel",DefaultButton=ContentDialogButton.Close};
+        if(await dialog.ShowAsync()!=ContentDialogResult.Primary)return;
+        if(action!="Delete"&&string.IsNullOrWhiteSpace(input.Text))return;
+        var before=JsonSerializer.Serialize(_library);
+        try{
+            if(action=="Delete"){
+                Directory.CreateDirectory(Path.GetDirectoryName(_libraryPath)!);
+                File.WriteAllText(_libraryPath+".recovery-"+Guid.NewGuid().ToString("N")+".json",before);
+                _library.Remove(item);
+            }else if(action=="Duplicate"){
+                var copy=JsonSerializer.Deserialize<SermonRecord>(JsonSerializer.Serialize(item))!;
+                copy.Id=Guid.NewGuid().ToString();copy.Title=input.Text.Trim();copy.LastOpened=default;copy.LastEdited=DateTimeOffset.UtcNow;_library.Add(copy);
+            }else{item.Title=input.Text.Trim();item.LastEdited=DateTimeOffset.UtcNow;}
+            PersistLibrary();
+        }catch(Exception ex){_library=JsonSerializer.Deserialize<List<SermonRecord>>(before)!;RefreshLibrary();Status.Text="Archive change failed: "+ex.Message;return;}
+        if(action=="Delete"&&_selectedId==item.Id)New_Click(this,null!);
+        if(action=="Rename"&&_selectedId==item.Id){var loading=_loading;_loading=true;SermonTitle.Text=item.Title;_loading=loading;}
+        RefreshLibrary();Status.Text=action+" completed.";
+    }
+    private void BulkArchive(bool filteredOnly){
+        try{
+            if(_autosave.IsRunning){_autosave.Stop();Save();if(_saveIndicator?.Text=="Save failed")return;}
+            var records=filteredOnly?(LibraryList.ItemsSource as IEnumerable<SermonRecord>??Enumerable.Empty<SermonRecord>()).ToList():_library.ToList();
+            var folder=Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments),"Sermon Studio","Archive-"+DateTime.Now.ToString("yyyyMMdd-HHmmss")+"-"+Guid.NewGuid().ToString("N")[..6]);
+            Directory.CreateDirectory(folder);
+            File.WriteAllText(Path.Combine(folder,"sermons.json"),JsonSerializer.Serialize(records,new JsonSerializerOptions{WriteIndented=true}));
+            foreach(var record in records){
+                var name=Regex.Replace(record.Title,@"[^\p{L}\p{N} _-]","_");if(name.Length>70)name=name[..70];name+="-"+Guid.NewGuid().ToString("N")[..8];
+                File.WriteAllText(Path.Combine(folder,name+"-Transcript.txt"),record.Original);
+                File.WriteAllText(Path.Combine(folder,name+"-Outline.md"),record.Outline);
+                WriteDocx(Path.Combine(folder,name+"-Outline.docx"),record.Title,record.Outline,true);
+            }
+            Status.Text="Exported "+records.Count+" sermons to "+folder;
+        }catch(Exception ex){Status.Text="Archive export failed: "+ex.Message;}
     }
 
     private void Export_Click(object sender, RoutedEventArgs e)
@@ -244,13 +304,16 @@ public sealed class SermonRecord
     public string Date { get; set; } = "";
     public string Speaker { get; set; } = "";
     public string PrimaryScripture { get; set; } = "";
+    public string Series {get;set;}="";
+    public string Collection {get;set;}="";
+    public DateTimeOffset LastOpened {get;set;}
     public string Tags {get;set;}="";
     public bool Favorite {get;set;}
     public DateTimeOffset LastEdited {get;set;}
     [System.Text.Json.Serialization.JsonIgnore]
     public string LibraryHeading => (Favorite?"★  ":"")+(string.IsNullOrWhiteSpace(Title)?"Untitled sermon":Title);
     [System.Text.Json.Serialization.JsonIgnore]
-    public string LibraryDetails => string.Join(" · ",new[]{Date,Speaker,PrimaryScripture,Tags}.Where(x=>!string.IsNullOrWhiteSpace(x)));
+    public string LibraryDetails => string.Join(" · ",new[]{Date,Speaker,PrimaryScripture,Series,Collection,Tags}.Where(x=>!string.IsNullOrWhiteSpace(x)));
     [System.Text.Json.Serialization.JsonIgnore]
     public string LibraryPreview {get{var value=string.IsNullOrWhiteSpace(Cleaned)?Original:Cleaned;value=System.Text.RegularExpressions.Regex.Replace(value??"",@"\s+"," ").Trim();return value.Length>150?value[..150]+"…":value;}}
     public string Original { get; set; } = "";
