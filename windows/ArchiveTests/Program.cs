@@ -16,4 +16,7 @@ Check(restored[0].Series=="Romans"&&restored[0].Collection=="Sunday"&&restored[0
 Check(restored[0].Segments?.Single().Text=="Faith","Timestamp round trip");
 Check(!json.Contains("LibraryPreview")&&!json.Contains("LibraryHeading"),"Computed UI properties excluded");
 Check(restored[0].LibraryPreview=="Original text","Preview text");
+var missing=ArchiveRules.NormalizeRecords(JsonSerializer.Deserialize<List<SermonRecord?>>("""[{"speaker":null,"tags":null,"series":null,"collection":null,"primaryScripture":null}]""",options)).Single();
+Check(missing.Speaker==""&&missing.Tags==""&&missing.Series==""&&missing.Collection==""&&missing.PrimaryScripture=="","Legacy null metadata normalized");
+Check(ArchiveRules.NormalizeRecords(restored).Select(x=>x.Id).SequenceEqual(restored.Select(x=>x.Id)),"Repeated normalization preserves identity");
 Console.WriteLine("All archive regression checks passed.");
