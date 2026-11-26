@@ -58,7 +58,7 @@ public sealed partial class MainWindow
         ButtonFor(audioActions,"Import audio",ImportAudio_Click); ButtonFor(audioActions,"Transcribe",Transcribe_Click); ButtonFor(audioActions,"Cancel",Cancel_Click);
         var actions = Bar();
         ButtonFor(actions,"Clean",Clean_Click); ButtonFor(actions,"Original",Original_Click);
-        var search = new StackPanel{Orientation=Orientation.Horizontal,Spacing=8};
+        var search = new Microsoft.UI.Xaml.Controls.VariableSizedWrapGrid{Orientation=Orientation.Horizontal,ItemWidth=145,ItemHeight=76};
         FindText = Field(search,"Find","",130);
         Replacement = Field(search,"Replace with","",130);
         ButtonFor(actions,"Scripture",Scripture_Click); ButtonFor(actions,"Compare",Compare_Click);
@@ -122,7 +122,7 @@ public sealed partial class MainWindow
         Outline.PlaceholderText="Generate an outline from your transcript, or start writing your own sermon outline.";
         var transcriptPanel=(Grid)editorCards[0].Child;
         transcriptPanel.RowDefinitions.Insert(1,new RowDefinition{Height=GridLength.Auto});
-        Grid.SetRow(search,1);transcriptPanel.Children.Add(new ScrollViewer{Content=search,HorizontalScrollMode=ScrollMode.Enabled,HorizontalScrollBarVisibility=ScrollBarVisibility.Auto,VerticalScrollMode=ScrollMode.Disabled});
+        Grid.SetRow(search,1);transcriptPanel.Children.Add(search);
         Grid.SetRow((FrameworkElement)transcriptPanel.Children[transcriptPanel.Children.Count-1],1);Grid.SetRow(Transcript,2);
         var outlinePanel=(Grid)editorCards[1].Child;
         transcriptPanel.RowDefinitions.Add(new RowDefinition{Height=GridLength.Auto});
@@ -169,9 +169,8 @@ public sealed partial class MainWindow
         var previewToggle=new Button{Content="Formatted view",HorizontalAlignment=HorizontalAlignment.Right};outlinePanel.Children.Add(previewToggle);
         outlinePanel.RowDefinitions.Insert(1,new RowDefinition{Height=GridLength.Auto});
         Grid.SetRow(Outline,2);Grid.SetRow(previewScroll,2);
-        var formatBar=new StackPanel{Orientation=Orientation.Horizontal,Spacing=6};
-        var formatScroll=new ScrollViewer{Content=formatBar,HorizontalScrollMode=ScrollMode.Enabled,HorizontalScrollBarVisibility=ScrollBarVisibility.Auto,VerticalScrollMode=ScrollMode.Disabled};
-        Grid.SetRow(formatScroll,1);outlinePanel.Children.Add(formatScroll);
+        var formatBar=new VariableSizedWrapGrid{Orientation=Orientation.Horizontal,ItemWidth=115,ItemHeight=42};
+        Grid.SetRow(formatBar,1);outlinePanel.Children.Add(formatBar);
         var rich=new RichEditBox{FontFamily=new FontFamily("Georgia"),FontSize=17,TextWrapping=TextWrapping.Wrap,Visibility=Visibility.Collapsed};
         Grid.SetRow(rich,2);outlinePanel.Children.Add(rich);
         bool syncingOutline=false;
@@ -183,7 +182,7 @@ public sealed partial class MainWindow
                 foreach(var raw in Outline.Text.Replace("\r","").Split('\n')){
                     var line=raw;float size=17;bool heading=line.StartsWith("## "),sub=line.StartsWith("### "),quote=line.StartsWith("> ");
                     if(heading||sub){size=sub?19:23;line=line.TrimStart('#',' ');}
-                    if(quote)line=line.Substring(2);
+                    if(quote)line="❯ "+line.Substring(2);
                     if(line.StartsWith("- "))line="• "+line.Substring(2);
                     foreach(var part in System.Text.RegularExpressions.Regex.Split(line,@"(\*\*[^*]+\*\*|\*[^*]+\*)")){
                         int start=plain.Length;bool bold=heading||sub||part.StartsWith("**")&&part.EndsWith("**");bool italic=quote||part.StartsWith("*")&&!part.StartsWith("**")&&part.EndsWith("*");
@@ -208,11 +207,11 @@ public sealed partial class MainWindow
                         var first=rich.Document.GetRange(offset,offset+1).CharacterFormat;
                         bool heading=first.Size>=22,sub=!heading&&first.Size>=19;
                         if(heading)output.Append("## ");else if(sub)output.Append("### ");
-                        int i=0;if(line.StartsWith("• ")){output.Append("- ");i=2;}
+                        int i=0;bool quote=line.StartsWith("❯ ");if(quote){output.Append("> ");i=2;}else if(line.StartsWith("• ")){output.Append("- ");i=2;}
                         while(i<line.Length){
                             var format=rich.Document.GetRange(offset+i,offset+i+1).CharacterFormat;
-                            bool bold=!heading&&!sub&&format.Bold==Microsoft.UI.Text.FormatEffect.On,italic=format.Italic==Microsoft.UI.Text.FormatEffect.On;
-                            int end=i+1;while(end<line.Length){var next=rich.Document.GetRange(offset+end,offset+end+1).CharacterFormat;if((!heading&&!sub&&next.Bold==Microsoft.UI.Text.FormatEffect.On)!=bold||(next.Italic==Microsoft.UI.Text.FormatEffect.On)!=italic)break;end++;}
+                            bool bold=!heading&&!sub&&format.Bold==Microsoft.UI.Text.FormatEffect.On,italic=!quote&&format.Italic==Microsoft.UI.Text.FormatEffect.On;
+                            int end=i+1;while(end<line.Length){var next=rich.Document.GetRange(offset+end,offset+end+1).CharacterFormat;if((!heading&&!sub&&next.Bold==Microsoft.UI.Text.FormatEffect.On)!=bold||(!quote&&next.Italic==Microsoft.UI.Text.FormatEffect.On)!=italic)break;end++;}
                             var marker=bold&&italic?"***":bold?"**":italic?"*":"";output.Append(marker).Append(line.Substring(i,end-i)).Append(marker);i=end;
                         }
                     }
@@ -231,7 +230,7 @@ public sealed partial class MainWindow
         ButtonFor(formatBar,"Italic",(_,_)=>VisualFormat(sel=>sel.CharacterFormat.Italic=Microsoft.UI.Text.FormatEffect.Toggle));
         ButtonFor(formatBar,"Bullets",(_,_)=>VisualFormat(sel=>sel.Text="• "+sel.Text));
         ButtonFor(formatBar,"Numbered",(_,_)=>VisualFormat(sel=>sel.Text=string.Join("\r",sel.Text.Split('\r').Select((line,i)=>(i+1)+". "+line))));
-        ButtonFor(formatBar,"Scripture",(_,_)=>VisualFormat(sel=>sel.CharacterFormat.Italic=Microsoft.UI.Text.FormatEffect.On));
+        ButtonFor(formatBar,"Scripture",(_,_)=>VisualFormat(sel=>{sel.Text="❯ "+sel.Text;sel.CharacterFormat.Italic=Microsoft.UI.Text.FormatEffect.On;}));
         ButtonFor(formatBar,"Undo",(_,_)=>{OutlineEdit();rich.Document.Undo();StoreVisual();});
         ButtonFor(formatBar,"Redo",(_,_)=>{OutlineEdit();rich.Document.Redo();StoreVisual();});
         ButtonFor(formatBar,"Markdown",(_,_)=>{StoreVisual();rich.Visibility=Visibility.Collapsed;previewScroll.Visibility=Visibility.Collapsed;Outline.Visibility=Visibility.Visible;previewToggle.Content="Visual editor";});
@@ -262,7 +261,7 @@ public sealed partial class MainWindow
                 var tip=new ToolTip{Content="KJV · Loading passage (internet required)…"};
                 ToolTipService.SetToolTip(label,tip);
                 tip.Opened+=async(_,_)=>{
-                    if(verseCache.TryGetValue(reference,out var cached)){tip.Content=cached;return;}
+                    if(verseCache.TryGetValue(reference,out var cached)){tip.Content=new TextBlock{Text=cached,TextWrapping=TextWrapping.Wrap,MaxWidth=420};return;}
                     try{
                         using var client=new HttpClient{Timeout=TimeSpan.FromSeconds(12)};
                         var json=await client.GetStringAsync("https://bible-api.com/"+Uri.EscapeDataString(reference)+"?translation=kjv");
