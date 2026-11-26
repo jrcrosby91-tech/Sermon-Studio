@@ -110,3 +110,20 @@ Record **Pass/Fail** and the version and build shown in Settings › Updates and
 - [ ] K4. Window resized down to the minimum (900×600): nothing overlaps or is cut off.
 
 **Result:** ____ of ____ passed · Tester/date/build: ______________________
+
+## Mandatory 3.3.0 release acceptance gate
+
+Do not publish to the stable Sparkle feed until all eight checks have recorded evidence on Apple Silicon. Use disposable archives and an isolated signed test update feed, not the production appcast.
+
+| Requirement | Evidence | Status |
+|---|---|---|
+| Real transcription | C1–C9: model, reference transcript, timestamps, cancellation, memory | Pending |
+| Rich-text preservation | F4–F10: exact Markdown comparison, edits, undo, relaunch | Core tests passed previously; UI pending |
+| Preferred icon | A1: compare packaged artwork with approved icon, Finder and Dock screenshots | Artwork pending |
+| Settings persistence | A2, H4–H5: before/after relaunch and update | Core tests passed previously; app pending |
+| Audio synchronization | D1–D4: known timestamp fixture, seeking, rates, sermon switch | Pending |
+| Ollama generation | F1–F3: real local model, cancellation and stale result isolation | Pending |
+| Cross-platform round trips | I1–I4: actual Windows, Mac and web imports/exports; compare IDs, metadata, text, timestamps and formatting | Core fixture tests passed previously; actual apps pending |
+| Automatic update installation | A4: signed candidate through isolated test feed; verify version, data and invalid signature rejection | Pending |
+
+Record commit, hardware, OS, tester, date and evidence. Any failure or unverified requirement blocks stable release approval. Compilation and startup alone are insufficient.
