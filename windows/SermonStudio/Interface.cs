@@ -149,6 +149,45 @@ public sealed partial class MainWindow
         var settingsScroll=new ScrollViewer{Content=Card(settings),Visibility=Visibility.Collapsed};Grid.SetColumn(settingsScroll,2);workspace.Children.Add(settingsScroll);
         settings.Children.Add(new TextBlock{Text="Transcription and local AI",FontSize=24,FontFamily=new FontFamily("Georgia")});
         OllamaModel = Field(settings,"Ollama model","llama3.2:3b",210);
+        var aiStatus=new TextBlock{Text="Optional local AI. Model downloads may require several GB.",TextWrapping=TextWrapping.Wrap};
+        var setup=new Button{Content="Set up / check Ollama"};
+        var cancelSetup=new Button{Content="Cancel setup",IsEnabled=false};
+        System.Threading.CancellationTokenSource? setupCancel=null;
+        settings.Children.Add(setup);settings.Children.Add(cancelSetup);settings.Children.Add(aiStatus);
+        cancelSetup.Click+=(_,_)=>setupCancel?.Cancel();
+        setup.Click+=async(_,_)=>{
+            setup.IsEnabled=false;cancelSetup.IsEnabled=true;setupCancel=new();
+            var token=setupCancel.Token;
+            try{
+                var model=OllamaModel.Text.Trim();
+                if(!System.Text.RegularExpressions.Regex.IsMatch(model,@"^[a-zA-Z0-9_.-]+(:[a-zA-Z0-9_.-]+)?$")||model.Contains("cloud",StringComparison.OrdinalIgnoreCase))throw new Exception("Choose a local model, such as llama3.2:3b.");
+                using var local=new HttpClient(new HttpClientHandler{UseProxy=false,AllowAutoRedirect=false}){Timeout=TimeSpan.FromSeconds(3)};
+                async Task<bool> Ready(){try{using var response=await local.GetAsync("http://127.0.0.1:11434/api/version",token);return response.IsSuccessStatusCode;}catch when(!token.IsCancellationRequested){return false;}}
+                if(!await Ready()){
+                    var exe=Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),"Programs","Ollama","ollama.exe");
+                    if(!File.Exists(exe)){
+                        aiStatus.Text="Opening official installer download. Complete installation, then select setup again.";
+                        await Windows.System.Launcher.LaunchUriAsync(new Uri("https://ollama.com/download/windows"));return;
+                    }
+                    var start=new System.Diagnostics.ProcessStartInfo(exe,"serve"){UseShellExecute=false,CreateNoWindow=true};start.Environment["OLLAMA_HOST"]="127.0.0.1:11434";start.Environment["OLLAMA_NO_CLOUD"]="1";
+                    using var process=System.Diagnostics.Process.Start(start);
+                    aiStatus.Text="Starting local service…";
+                    for(int i=0;i<30&&!await Ready();i++)await Task.Delay(1000,token);
+                    if(!await Ready())throw new Exception("Start Ollama from the Start menu and retry.");
+                }
+                using var client=new HttpClient(new HttpClientHandler{UseProxy=false,AllowAutoRedirect=false}){Timeout=System.Threading.Timeout.InfiniteTimeSpan};
+                using var show=await client.PostAsync("http://127.0.0.1:11434/api/show",System.Net.Http.Json.JsonContent.Create(new{model}),token);
+                if(!show.IsSuccessStatusCode){
+                    aiStatus.Text="Downloading "+model+"…";
+                    using var request=new HttpRequestMessage(HttpMethod.Post,"http://127.0.0.1:11434/api/pull"){Content=System.Net.Http.Json.JsonContent.Create(new{model,stream=true})};
+                    using var response=await client.SendAsync(request,HttpCompletionOption.ResponseHeadersRead,token);response.EnsureSuccessStatusCode();
+                    using var reader=new StreamReader(await response.Content.ReadAsStreamAsync(token));bool success=false;
+                    while(await reader.ReadLineAsync(token) is string line){using var doc=System.Text.Json.JsonDocument.Parse(line);var obj=doc.RootElement;if(obj.TryGetProperty("error",out var error))throw new Exception(error.GetString());if(obj.TryGetProperty("status",out var state)){aiStatus.Text=state.GetString()??"Downloading";success=aiStatus.Text=="success";}if(obj.TryGetProperty("total",out var total)&&obj.TryGetProperty("completed",out var done)&&total.GetDouble()>0)aiStatus.Text+=" · "+(done.GetDouble()/total.GetDouble()).ToString("P0");}
+                    if(!success)throw new Exception("Model download did not finish.");
+                }
+                aiStatus.Text="Ready: "+model+" is available locally.";
+            }catch(OperationCanceledException){aiStatus.Text="Setup canceled.";}catch(Exception ex){aiStatus.Text="Setup failed: "+ex.Message;}finally{setupCancel.Dispose();setupCancel=null;setup.IsEnabled=true;cancelSetup.IsEnabled=false;}
+        };
         WhisperPath = Field(settings,"Whisper CLI executable","",210);
         WhisperModel = Field(settings,"GGML model file","",210);
         FfmpegPath = Field(settings,"FFmpeg executable","",210);
