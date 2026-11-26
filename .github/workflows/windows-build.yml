@@ -31,6 +31,8 @@ jobs:
           dotnet publish windows/SermonStudio/SermonStudio.csproj --configuration Release --runtime win-x64 --self-contained true -p:Platform=x64 -p:WindowsAppSDKSelfContained=true -p:WindowsPackageType=None -p:PublishSingleFile=false -p:GenerateAppxPackageOnBuild=false --output "$env:GITHUB_WORKSPACE/windows-publish"
           if ($LASTEXITCODE -ne 0) { throw "dotnet publish failed" }
           if (!(Test-Path "windows-publish/SermonStudio.exe")) { throw "Windows executable missing from published output." }
+          # WinUI cannot load XAML or theme resources without the app's resource index.
+          if (!(Test-Path "windows-publish/SermonStudio.pri") -and !(Test-Path "windows-publish/resources.pri")) { throw "SermonStudio.pri missing from published output; the app would crash at startup." }
       - name: Create portable ZIP
         run: Compress-Archive -Path "windows-publish/*" -DestinationPath "Sermon-Studio-Windows-x64-portable.zip" -Force
       - name: Upload executable package

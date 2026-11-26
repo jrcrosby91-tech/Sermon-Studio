@@ -29,19 +29,43 @@ public sealed partial class MainWindow : Window
         try
         {
             if (File.Exists(_libraryPath))
-                _library = JsonSerializer.Deserialize<List<SermonRecord>>(File.ReadAllText(_libraryPath)) ?? new();
+                _library = NormalizeRecords(JsonSerializer.Deserialize<List<SermonRecord?>>(File.ReadAllText(_libraryPath)));
             RefreshLibrary();
         }
-        catch (Exception ex) { Status.Text = "Library could not be loaded: " + ex.Message; }
+        catch (Exception ex)
+        {
+            // Keep a copy of the unreadable file so the next save does not overwrite the user's sermons.
+            var kept = "";
+            try { kept = _libraryPath + ".unreadable-" + DateTime.Now.ToString("yyyyMMdd-HHmmss"); File.Copy(_libraryPath, kept, true); }
+            catch { kept = ""; }
+            Status.Text = "Library could not be loaded: " + ex.Message + (kept.Length > 0 ? " A copy was kept at " + kept : "");
+        }
         _loading = false;
+    }
+
+    internal static List<SermonRecord> NormalizeRecords(IEnumerable<SermonRecord?>? records)
+    {
+        var list = new List<SermonRecord>();
+        foreach (var r in records ?? Enumerable.Empty<SermonRecord?>())
+        {
+            if (r == null) continue;
+            if (string.IsNullOrWhiteSpace(r.Id)) r.Id = Guid.NewGuid().ToString();
+            r.Title ??= ""; r.Date ??= ""; r.Original ??= ""; r.Cleaned ??= "";
+            r.Outline ??= ""; r.Srt ??= ""; r.Vtt ??= "";
+            list.Add(r);
+        }
+        return list;
     }
 
     private void RefreshLibrary()
     {
+        var wasLoading = _loading;
         _loading = true;
-        LibraryList.ItemsSource = null;
-        LibraryList.ItemsSource = _library.OrderByDescending(x => x.Date).ToList();
-        _loading = false;
+        var items = _library.OrderByDescending(x => x.Date).ToList();
+        LibraryList.ItemsSource = items;
+        // Keep the current sermon highlighted after autosave/restore rebuilds the list.
+        LibraryList.SelectedItem = items.FirstOrDefault(x => x.Id == _selectedId);
+        _loading = wasLoading;
     }
 
     private void Navigation_SelectionChanged(NavigationView sender, NavigationViewSelectionChangedEventArgs args)
@@ -56,6 +80,9 @@ public sealed partial class MainWindow : Window
         if (_autosave.IsRunning) { _autosave.Stop(); Save(); }
         _loading = true;
         _selectedId = item.Id;
+        // Saving the previous sermon rebuilds the list; re-select the sermon the user clicked.
+        if (LibraryList.SelectedItem is not SermonRecord current || current.Id != item.Id)
+            LibraryList.SelectedItem = (LibraryList.ItemsSource as IEnumerable<SermonRecord>)?.FirstOrDefault(x => x.Id == item.Id);
         SermonTitle.Text = item.Title;
         _showCleaned = false; _originalText = item.Original; _cleanedText = item.Cleaned;
         _srt = item.Srt; _vtt = item.Vtt;

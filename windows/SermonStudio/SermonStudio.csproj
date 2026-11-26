@@ -3,8 +3,16 @@
     <OutputType>WinExe</OutputType>
     <TargetFramework>net10.0-windows10.0.19041.0</TargetFramework>
     <TargetPlatformMinVersion>10.0.17763.0</TargetPlatformMinVersion>
+    <RootNamespace>SermonStudio</RootNamespace>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <Platforms>x86;x64;ARM64</Platforms>
+    <RuntimeIdentifiers>win-x86;win-x64;win-arm64</RuntimeIdentifiers>
     <UseWinUI>true</UseWinUI>
+    <!-- Unpackaged app. EnableMsixTooling is still required so the build generates
+         SermonStudio.pri (compiled XAML + merged WinUI theme resources). Without it
+         WinUI cannot resolve ms-appx:/// resources and crashes at startup/first layout. -->
     <WindowsPackageType>None</WindowsPackageType>
+    <EnableMsixTooling>true</EnableMsixTooling>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
   </PropertyGroup>
@@ -12,4 +20,12 @@
     <PackageReference Include="Microsoft.WindowsAppSDK" Version="1.8.260209005" />
     <PackageReference Include="Microsoft.Windows.SDK.BuildTools" Version="10.0.26100.4654" />
   </ItemGroup>
+
+  <!-- Safety net: make sure the generated resource index always lands in the publish folder. -->
+  <Target Name="EnsurePriInPublish" AfterTargets="Publish">
+    <ItemGroup>
+      <_SermonStudioPri Include="$(OutDir)$(TargetName).pri;$(OutDir)resources.pri" Condition="'$(OutDir)' != ''" />
+    </ItemGroup>
+    <Copy SourceFiles="@(_SermonStudioPri)" DestinationFolder="$(PublishDir)" Condition="Exists('%(FullPath)')" SkipUnchangedFiles="true" />
+  </Target>
 </Project>

@@ -8,6 +8,7 @@ using System.Text;
 using System.Text.RegularExpressions;
 using System.Text.Json;
 using System.IO.Compression;
+using System.Xml;
 using System.Xml.Linq;
 
 namespace SermonStudio;
@@ -146,8 +147,10 @@ public sealed partial class MainWindow
     {
         XNamespace w="http://schemas.openxmlformats.org/wordprocessingml/2006/main";
         XNamespace xml=XNamespace.Xml;
+        // Strip characters XML 1.0 forbids (e.g. stray control codes from transcripts); they make the writer throw.
+        static string XmlSafe(string s)=>new string(s.Where(c=>XmlConvert.IsXmlChar(c)||char.IsSurrogate(c)).ToArray());
         var paragraphs=(title+"\n"+body).Split('\n').Select(line =>
-            new XElement(w+"p", new XElement(w+"r", new XElement(w+"t", new XAttribute(xml+"space","preserve"), line.TrimEnd('\r')))));
+            new XElement(w+"p", new XElement(w+"r", new XElement(w+"t", new XAttribute(xml+"space","preserve"), XmlSafe(line.TrimEnd('\r'))))));
         var doc=new XDocument(new XElement(w+"document",new XAttribute(XNamespace.Xmlns+"w",w),new XElement(w+"body",paragraphs)));
         using var zip=new ZipArchive(File.Create(path),ZipArchiveMode.Create);
         void Add(string name,string data){using var writer=new StreamWriter(zip.CreateEntry(name).Open(),new UTF8Encoding(false));writer.Write(data);}
@@ -170,8 +173,9 @@ public sealed partial class MainWindow
     {
         try {
             var path=await PickFile(".json"); if(path==null)return;
-            var records=JsonSerializer.Deserialize<List<SermonRecord>>(await File.ReadAllTextAsync(path)) ?? throw new InvalidDataException("Invalid archive.");
-            if(records.Any(x=>x==null||string.IsNullOrWhiteSpace(x.Id))) throw new InvalidDataException("Invalid sermon record.");
+            var raw=JsonSerializer.Deserialize<List<SermonRecord?>>(await File.ReadAllTextAsync(path)) ?? throw new InvalidDataException("Invalid archive.");
+            if(raw.Any(x=>x==null||string.IsNullOrWhiteSpace(x.Id))) throw new InvalidDataException("Invalid sermon record.");
+            var records=NormalizeRecords(raw);
             foreach(var item in records) if(!_library.Any(x=>x.Id==item.Id)) _library.Add(item);
             Directory.CreateDirectory(Path.GetDirectoryName(_libraryPath)!);
             File.WriteAllText(_libraryPath+".tmp",JsonSerializer.Serialize(_library)); File.Move(_libraryPath+".tmp",_libraryPath,true);
