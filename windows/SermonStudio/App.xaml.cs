@@ -8,14 +8,18 @@ public partial class App : Application
         try {
             var folder = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "SermonStudio");
             Directory.CreateDirectory(folder);
-            File.AppendAllText(Path.Combine(folder,"startup.log"), DateTime.Now.ToString("O")+" "+message+Environment.NewLine);
+            var log = Path.Combine(folder,"startup.log");
+            // Keep the diagnostic log small. It never contains sermon text, only events and exception types.
+            var info = new FileInfo(log);
+            if (info.Exists && info.Length > 1_000_000) File.Move(log, log + ".old", true);
+            File.AppendAllText(log, DateTime.Now.ToString("O")+" "+message+Environment.NewLine);
         } catch {}
     }
     public App()
     {
         Log("App constructor");
         AppDomain.CurrentDomain.UnhandledException += (_, e) => Log("Fatal: "+e.ExceptionObject);
-        UnhandledException += (_, e) => Log("XAML exception: "+e.Exception);
+        UnhandledException += (_, e) => { Log("XAML exception: "+e.Exception); (_window as MainWindow)?.EmergencyRecovery(); };
         try { InitializeComponent(); } catch(Exception ex) { Log(ex.ToString()); throw; }
     }
     protected override void OnLaunched(LaunchActivatedEventArgs args)

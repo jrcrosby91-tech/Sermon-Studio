@@ -29,30 +29,49 @@ jobs:
       - name: Run archive regression tests
         run: |
           dotnet run --project windows/ArchiveTests/ArchiveTests.csproj --configuration Release
-          if ($LASTEXITCODE -ne 0) { throw "Archive regression tests failed" }
+          if ($LASTEXITCODE -ne 0) { throw "Regression tests failed (exit code $LASTEXITCODE); publishing is blocked." }
       - name: Publish runnable Windows x64 application
         run: |
-          dotnet publish windows/SermonStudio/SermonStudio.csproj --configuration Release --runtime win-x64 --self-contained true -p:Platform=x64 -p:WindowsAppSDKSelfContained=true -p:WindowsPackageType=None -p:PublishSingleFile=false -p:GenerateAppxPackageOnBuild=false --output "$env:GITHUB_WORKSPACE/windows-publish"
+          dotnet publish windows/SermonStudio/SermonStudio.csproj -warnaserror:CS8600,CS8601,CS8602,CS8603,CS8604,CS8618,CS8625 --configuration Release --runtime win-x64 --self-contained true -p:Platform=x64 -p:WindowsAppSDKSelfContained=true -p:WindowsPackageType=None -p:PublishSingleFile=false -p:GenerateAppxPackageOnBuild=false --output "$env:GITHUB_WORKSPACE/windows-publish"
           if ($LASTEXITCODE -ne 0) { throw "dotnet publish failed" }
           if (!(Test-Path "windows-publish/SermonStudio.exe")) { throw "Windows executable missing from published output." }
           # WinUI cannot load XAML or theme resources without the app's resource index.
           if (!(Test-Path "windows-publish/SermonStudio.pri") -and !(Test-Path "windows-publish/resources.pri")) { throw "SermonStudio.pri missing from published output; the app would crash at startup." }
       - name: Bundle local transcription engines
+        env:
+          GH_TOKEN: ${{ github.token }}
+          # Verified against GitHub's published asset digest in CI run 45762586213.
+          WHISPER_SHA256: '0d2eca299c248f965bd0341bcb219db4b433c7f0c0ce2200d4df85765e8156a9'
         run: |
           $engine = "$env:GITHUB_WORKSPACE/windows-publish/engines"
           New-Item -ItemType Directory -Force "$engine/whisper", "$engine/ffmpeg" | Out-Null
-          # Download the verified, pinned release asset directly. This avoids the
-          # unauthenticated GitHub REST API rate limit shared by hosted runners.
-          $whisperUrl = "https://github.com/ggml-org/whisper.cpp/releases/download/v1.7.6/whisper-bin-x64.zip"
-          Invoke-WebRequest -Uri $whisperUrl -OutFile "$env:RUNNER_TEMP/whisper.zip" -MaximumRetryCount 3 -RetryIntervalSec 5
+          # Download the pinned whisper.cpp release asset directly (avoids the unauthenticated API rate limit)
+          # and verify it against GitHub's published asset digest or the pinned hash above.
+          $whisperRepo = "ggml-org/whisper.cpp"; $whisperTag = "v1.7.6"; $whisperAsset = "whisper-bin-x64.zip"
+          Invoke-WebRequest -Uri "https://github.com/$whisperRepo/releases/download/$whisperTag/$whisperAsset" -OutFile "$env:RUNNER_TEMP/whisper.zip" -MaximumRetryCount 3 -RetryIntervalSec 5
+          $whisperHash = (Get-FileHash "$env:RUNNER_TEMP/whisper.zip" -Algorithm SHA256).Hash.ToLowerInvariant()
+          $digest = ""
+          try { $release = gh api "repos/$whisperRepo/releases/tags/$whisperTag" | ConvertFrom-Json; $digest = [string](($release.assets | Where-Object { $_.name -eq $whisperAsset }).digest) } catch { $digest = "" }
+          Write-Host "$whisperAsset sha256=$whisperHash published=$digest"
+          if ($env:WHISPER_SHA256 -and $env:WHISPER_SHA256 -ne $whisperHash) { throw "whisper.cpp download does not match the pinned SHA-256." }
+          if ($digest -and $digest.Trim() -ne "sha256:$whisperHash") { throw "whisper.cpp download does not match the published SHA-256 digest." }
+          if (!$digest -and !$env:WHISPER_SHA256) { throw "No published or pinned SHA-256 for $whisperAsset." }
           Expand-Archive "$env:RUNNER_TEMP/whisper.zip" "$engine/whisper" -Force
-          Invoke-WebRequest "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip" -OutFile "$env:RUNNER_TEMP/ffmpeg.zip"
+          $ffmpegUrl = "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip"
+          Invoke-WebRequest $ffmpegUrl -OutFile "$env:RUNNER_TEMP/ffmpeg.zip" -MaximumRetryCount 3 -RetryIntervalSec 5
+          $ffmpegHash = (Get-FileHash "$env:RUNNER_TEMP/ffmpeg.zip" -Algorithm SHA256).Hash.ToLowerInvariant()
+          $published = ""
+          try { $published = ((Invoke-WebRequest "$ffmpegUrl.sha256" -MaximumRetryCount 3 -RetryIntervalSec 5).Content | Out-String).Trim().Split(" ")[0].ToLowerInvariant() } catch { $published = "" }
+          Write-Host "ffmpeg-release-essentials.zip sha256=$ffmpegHash published=$published"
+          if ($published) { if ($published -ne $ffmpegHash) { throw "FFmpeg download does not match the published SHA-256." } }
+          else { Write-Host "::warning::FFmpeg checksum file unavailable; recorded $ffmpegHash" }
           Expand-Archive "$env:RUNNER_TEMP/ffmpeg.zip" "$engine/ffmpeg" -Force
           foreach ($name in @("whisper-cli.exe","ffmpeg.exe")) {
             if (!(Get-ChildItem $engine -Recurse -Filter $name)) { throw "Missing engine: $name" }
           }
           Invoke-WebRequest "https://raw.githubusercontent.com/ggml-org/whisper.cpp/v1.7.6/LICENSE" -OutFile "$engine/whisper/LICENSE.txt"
-          "FFmpeg distribution: https://www.gyan.dev/ffmpeg/builds/ ; upstream source: https://ffmpeg.org/download.html ; retain included license notices." | Set-Content "$engine/ffmpeg/SOURCE.txt"
+          "FFmpeg distribution: https://www.gyan.dev/ffmpeg/builds/ ; sha256 $ffmpegHash ; upstream source: https://ffmpeg.org/download.html ; retain included license notices." | Set-Content "$engine/ffmpeg/SOURCE.txt"
+          "whisper.cpp $whisperTag $whisperAsset sha256 $whisperHash" | Set-Content "$engine/whisper/SOURCE.txt"
           "windows-test-${{ github.run_number }}-${{ github.run_attempt }}" | Set-Content "windows-publish/build-tag.txt"
       - name: Create portable ZIP
         run: Compress-Archive -Path "windows-publish/*" -DestinationPath "Sermon-Studio-Windows-x64-portable.zip" -Force

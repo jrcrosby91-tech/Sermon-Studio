@@ -32,9 +32,9 @@ public sealed partial class MainWindow
     {
         try {
             if(_transcription!=null){Status.Text="Finish or cancel transcription first.";return;}
-            var revision=_workspaceRevision;
+            var ticket=_guard.Capture(null);
             var path = await PickFile(".wav",".mp3",".m4a",".mp4",".flac",".ogg");
-            if (path == null||revision!=_workspaceRevision||_transcription!=null) return;
+            if (path == null||!_guard.IsCurrent(ticket,null)||_transcription!=null) return;
             _audioPath = path;
             _player ??= new MediaPlayer();
             if (_audioHost != null && !_audioHost.Children.Contains(AudioPlayer)) _audioHost.Children.Add(AudioPlayer);
@@ -53,25 +53,39 @@ public sealed partial class MainWindow
             Status.Text = "Set paths to whisper-cli.exe and a downloaded GGML Whisper model.";
             return;
         }
+        if (!string.IsNullOrWhiteSpace(Transcript.Text))
+        {
+            var replace = await ShowDialogAsync(new ContentDialog { XamlRoot = ((FrameworkElement)Content).XamlRoot, Title = "Replace transcript?", Content = "Transcribing replaces the current transcript text for this sermon.", PrimaryButtonText = "Transcribe and replace", CloseButtonText = "Cancel", DefaultButton = ContentDialogButton.Close });
+            if (replace != ContentDialogResult.Primary || _transcription != null || _audioPath == null) return;
+        }
         var audio = _audioPath;
+        var ffmpeg = FfmpegPath.Text.Trim();
+        var ticket = _guard.Capture(null, audio);
         var output = Path.Combine(Path.GetTempPath(), "sermon-" + Guid.NewGuid().ToString("N"));
         _transcription = new CancellationTokenSource();
         TranscriptionProgress.IsIndeterminate = true;
         try {
             // whisper.cpp accepts WAV input reliably. Other formats require local FFmpeg conversion.
             var input = audio;
-            if (File.Exists(FfmpegPath.Text.Trim()) || !audio.EndsWith(".wav", StringComparison.OrdinalIgnoreCase)) {
-                if (!File.Exists(FfmpegPath.Text.Trim())) throw new InvalidOperationException("Set the FFmpeg executable path for non-WAV recordings.");
+            if (File.Exists(ffmpeg) || !audio.EndsWith(".wav", StringComparison.OrdinalIgnoreCase)) {
+                if (!File.Exists(ffmpeg)) throw new InvalidOperationException("Set the FFmpeg executable path for non-WAV recordings.");
                 input = output + ".wav";
-                await RunLocal(FfmpegPath.Text.Trim(), new[]{"-y","-i",audio,"-ar","16000","-ac","1","-c:a","pcm_s16le",input}, _transcription.Token);
+                Status.Text = "Preparing audio locally with FFmpeg…";
+                await RunLocal(ffmpeg, new[]{"-nostdin","-hide_banner","-loglevel","error","-y","-i",audio,"-vn","-ar","16000","-ac","1","-c:a","pcm_s16le",input}, _transcription.Token);
             }
             Status.Text = "Transcribing locally with Whisper…";
             await RunLocal(whisper,new[]{"-m",model,"-f",input,"-otxt","-osrt","-ovtt","-of",output},_transcription.Token);
-            Transcript.Text = await File.ReadAllTextAsync(output+".txt");
-            _originalText = Transcript.Text; _cleanedText = ""; _showCleaned = false;
-            _srt = File.Exists(output+".srt") ? await File.ReadAllTextAsync(output+".srt") : "";
-            _vtt = File.Exists(output+".vtt") ? await File.ReadAllTextAsync(output+".vtt") : "";
-            Status.Text = "Offline transcription complete. Save the sermon to retain timestamps.";
+            var text = await File.ReadAllTextAsync(output+".txt");
+            var srt = File.Exists(output+".srt") ? await File.ReadAllTextAsync(output+".srt") : "";
+            var vtt = File.Exists(output+".vtt") ? await File.ReadAllTextAsync(output+".vtt") : "";
+            // Never place a transcript into a different sermon than the one it was started for.
+            if (!_guard.IsCurrent(ticket, null, _audioPath ?? "")) { Status.Text = "Transcription result discarded because the open sermon changed."; return; }
+            // Set timestamps before the text so the autosave triggered by the text change stores both together.
+            _srt = srt; _vtt = vtt;
+            _originalText = text.Trim(); _cleanedText = ""; _showCleaned = false;
+            Transcript.Text = _originalText;
+            if (_selectedId == null) Status.Text = "Offline transcription complete. Select Save sermon to keep it and its timestamps.";
+            else { _autosave.Stop(); if (Save()) Status.Text = "Offline transcription complete and saved with timestamps."; }
         } catch(OperationCanceledException) { Status.Text = "Transcription canceled."; }
           catch(Exception ex) { Status.Text = "Transcription failed: "+ex.Message; }
         finally {
@@ -79,18 +93,31 @@ public sealed partial class MainWindow
             foreach(var ext in new[]{".wav",".txt",".srt",".vtt"}) try { File.Delete(output+ext); } catch {}
         }
     }
+    private static readonly HashSet<Process> RunningEngines = new();
+    /// <summary>Synchronously stops Whisper/FFmpeg processes; used at shutdown when async continuations may never run.</summary>
+    private static void KillRunningEngines()
+    {
+        Process[] running;
+        lock (RunningEngines) running = RunningEngines.ToArray();
+        foreach (var process in running) { try { if (!process.HasExited) process.Kill(true); } catch { } }
+    }
     private static async Task RunLocal(string exe, string[] args, CancellationToken token)
     {
         var info = new ProcessStartInfo(exe){UseShellExecute=false,CreateNoWindow=true,RedirectStandardError=true,RedirectStandardOutput=true};
         foreach(var arg in args) info.ArgumentList.Add(arg);
         using var process = Process.Start(info) ?? throw new InvalidOperationException("Unable to start local engine.");
+        lock (RunningEngines) RunningEngines.Add(process);
+        // Kill as soon as cancellation is requested, independent of the awaiting thread.
+        using var kill = token.Register(() => { try { if (!process.HasExited) process.Kill(true); } catch { } });
+        try {
         var stderr = process.StandardError.ReadToEndAsync();
         var stdout = process.StandardOutput.ReadToEndAsync();
         try { await process.WaitForExitAsync(token); }
-        catch(OperationCanceledException) { if(!process.HasExited) process.Kill(true); await process.WaitForExitAsync(); throw; }
+        catch(OperationCanceledException) { try { if(!process.HasExited) process.Kill(true); } catch { } await process.WaitForExitAsync(); throw; }
         await stdout;
         var error = await stderr;
         if(process.ExitCode!=0) throw new InvalidOperationException(error.Length>1500?error[^1500..]:error);
+        } finally { lock (RunningEngines) RunningEngines.Remove(process); }
     }
     private void Cancel_Click(object sender,RoutedEventArgs e) => _transcription?.Cancel();
     private void Clean_Click(object sender,RoutedEventArgs e)
@@ -123,90 +150,64 @@ public sealed partial class MainWindow
     }
     private void Scripture_Click(object sender,RoutedEventArgs e)
     {
-        var pattern=@"\b(?:Genesis|Exodus|Leviticus|Numbers|Deuteronomy|Joshua|Judges|Ruth|Psalms?|Proverbs|Isaiah|Jeremiah|Matthew|Mark|Luke|John|Acts|Romans|(?:[12]\s+)?Corinthians|Galatians|Ephesians|Philippians|Colossians|Hebrews|James|Revelation)\s+\d+(?::\d+(?:[-–]\d+)?)?";
-        var refs=Regex.Matches(Transcript.Text,pattern,RegexOptions.IgnoreCase).Select(m=>m.Value).Distinct(StringComparer.OrdinalIgnoreCase);
+        _syncVisual?.Invoke();
+        var refs=ScriptureReferences.Distinct(Transcript.Text+"\n"+Outline.Text);
         ScriptureResults.Text=string.Join("\n",refs);
         if(ScriptureResults.Text.Length==0) ScriptureResults.Text="No explicit references detected.";
     }
     private string _srt="", _vtt="";
     private void ExportMore_Click(object sender,RoutedEventArgs e)
     {
+        _syncVisual?.Invoke();
         try {
-            var folder=Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments),"Sermon Studio");
-            Directory.CreateDirectory(folder);
-            var name=Regex.Replace(SermonTitle.Text,@"[\\/:*?""<>|]","_").Trim().TrimEnd('.');
-            if(string.IsNullOrWhiteSpace(name)) name="Sermon";
-            var text=Transcript.Text;
-            File.WriteAllText(Path.Combine(folder,name+".txt"),text);
-            File.WriteAllText(Path.Combine(folder,name+".md"),"# "+SermonTitle.Text+"\n\n"+text);
-            WriteRtf(Path.Combine(folder,name+".rtf"),text);
-            WriteRtf(Path.Combine(folder,name+"-Outline.rtf"),Outline.Text);
-            WriteDocx(Path.Combine(folder,name+".docx"),SermonTitle.Text,text);
-            WriteDocx(Path.Combine(folder,name+"-Outline.docx"),SermonTitle.Text+" — Outline",Outline.Text,true);
-            if(_srt.Length>0) File.WriteAllText(Path.Combine(folder,name+".srt"),_srt);
-            if(_vtt.Length>0) File.WriteAllText(Path.Combine(folder,name+".vtt"),_vtt);
-            Status.Text="Exported TXT, Markdown, DOCX and available timestamps to "+folder;
+            var folder=ExportPaths.DefaultFolder();
+            var title=SermonTitle.Text;
+            var exports=new List<string>{".txt",".md",".rtf","-Outline.rtf",".docx","-Outline.docx"};
+            if(_srt.Length>0)exports.Add(".srt");
+            if(_vtt.Length>0)exports.Add(".vtt");
+            // One shared, unused base name for the whole set: existing exports are never overwritten.
+            var name=ExportPaths.UniqueBaseName(folder,ExportPaths.SanitizeFileName(title),exports.ToArray());
+            var text=Transcript.Text;var outline=Outline.Text;
+            File.WriteAllText(Path.Combine(folder,name+".txt"),OutlineMarkdown.NormalizeNewlines(text,"\r\n"),new UTF8Encoding(true));
+            File.WriteAllText(Path.Combine(folder,name+".md"),"# "+title+"\n\n"+OutlineMarkdown.NormalizeNewlines(text)+"\n",new UTF8Encoding(false));
+            DocumentWriters.WriteRtf(Path.Combine(folder,name+".rtf"),title,text,false);
+            DocumentWriters.WriteRtf(Path.Combine(folder,name+"-Outline.rtf"),title+" — Outline",outline,true);
+            DocumentWriters.WriteDocx(Path.Combine(folder,name+".docx"),title,text,false);
+            DocumentWriters.WriteDocx(Path.Combine(folder,name+"-Outline.docx"),title+" — Outline",outline,true);
+            if(_srt.Length>0) File.WriteAllText(Path.Combine(folder,name+".srt"),_srt,new UTF8Encoding(false));
+            if(_vtt.Length>0) File.WriteAllText(Path.Combine(folder,name+".vtt"),_vtt,new UTF8Encoding(false));
+            Status.Text="Exported TXT, Markdown, RTF, DOCX"+(_srt.Length>0?" and subtitles":"")+" as “"+name+"” to "+folder;
         } catch(Exception ex){Status.Text="Export failed: "+ex.Message;}
-    }
-    private static void WriteDocx(string path,string title,string body,bool formatted=false)
-    {
-        XNamespace w="http://schemas.openxmlformats.org/wordprocessingml/2006/main";
-        XNamespace xml=XNamespace.Xml;
-        // Strip characters XML 1.0 forbids (e.g. stray control codes from transcripts); they make the writer throw.
-        static string XmlSafe(string s)=>new string(s.Where(c=>XmlConvert.IsXmlChar(c)||char.IsSurrogate(c)).ToArray());
-        var paragraphs=(title+"\n"+body).Split('\n').Select((raw,index)=>{
-            var line=raw.TrimEnd('\r');bool heading=index==0||(formatted&&line.StartsWith("#"));bool quote=formatted&&line.StartsWith(">");bool bullet=formatted&&(line.StartsWith("- ")||line.StartsWith("* "));
-            int size=index==0?36:line.StartsWith("###")?28:32;
-            if(formatted&&heading&&index!=0)line=line.TrimStart('#',' ');
-            if(quote)line=line.TrimStart('>',' ');if(bullet)line="• "+line.Substring(2);
-            var paragraph=new XElement(w+"p");
-            if(heading||quote||bullet)paragraph.Add(new XElement(w+"pPr",new XElement(w+"spacing",new XAttribute(w+"after","120")),quote||bullet?new XElement(w+"ind",new XAttribute(w+"left","360")):null));
-            foreach(var part in formatted?Regex.Split(line,@"(\*\*\*[^*]+\*\*\*|\*\*[^*]+\*\*|\*[^*]+\*)"):new[]{line}){
-                bool bold=heading||(formatted&&part.StartsWith("**")&&part.EndsWith("**"));bool italic=quote||(formatted&&(part.StartsWith("***")||!part.StartsWith("**"))&&part.StartsWith("*")&&part.EndsWith("*"));
-                paragraph.Add(new XElement(w+"r",new XElement(w+"rPr",bold?new XElement(w+"b"):null,italic?new XElement(w+"i"):null,heading?new XElement(w+"sz",new XAttribute(w+"val",size)):null),new XElement(w+"t",new XAttribute(xml+"space","preserve"),XmlSafe(formatted?part.Trim('*'):part))));
-            }
-            return paragraph;
-        });
-        var doc=new XDocument(new XElement(w+"document",new XAttribute(XNamespace.Xmlns+"w",w),new XElement(w+"body",paragraphs)));
-        using var zip=new ZipArchive(File.Create(path),ZipArchiveMode.Create);
-        void Add(string name,string data){using var writer=new StreamWriter(zip.CreateEntry(name).Open(),new UTF8Encoding(false));writer.Write(data);}
-        Add("[Content_Types].xml","<Types xmlns=\"http://schemas.openxmlformats.org/package/2006/content-types\"><Default Extension=\"rels\" ContentType=\"application/vnd.openxmlformats-package.relationships+xml\"/><Default Extension=\"xml\" ContentType=\"application/xml\"/><Override PartName=\"/word/document.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml\"/></Types>");
-        Add("_rels/.rels","<Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\"><Relationship Id=\"rId1\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument\" Target=\"word/document.xml\"/></Relationships>");
-        Add("word/document.xml",doc.ToString());
     }
     private void Backup_Click(object sender,RoutedEventArgs e)
     {
         try {
-            if(_selectedId!=null) Save();
-            var folder=Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments),"Sermon Studio");
-            Directory.CreateDirectory(folder);
-            var path=Path.Combine(folder,"SermonStudio-backup-"+DateTime.Now.ToString("yyyyMMdd-HHmmss")+".json");
-            File.WriteAllText(path,JsonSerializer.Serialize(_library,new JsonSerializerOptions{WriteIndented=true}));
-            Status.Text="Backup saved: "+path;
-        }catch(Exception ex){Status.Text=ex.Message;}
+            if(!FlushPendingSave()){Status.Text="The open sermon could not be saved; the backup would miss your latest changes. Retry Save sermon first.";return;}
+            var path=ExportPaths.ReserveNewFile(ExportPaths.DefaultFolder(),"SermonStudio-backup-"+DateTime.Now.ToString("yyyyMMdd-HHmmss"),".json");
+            AtomicFile.WriteAllText(path,ArchiveRules.SerializeLibrary(_library));
+            Status.Text="Backup of "+_library.Count+" sermons saved: "+path;
+        }catch(Exception ex){Status.Text="Backup failed: "+ex.Message;}
     }
     private async void Restore_Click(object sender,RoutedEventArgs e)
     {
         try {
             if(_transcription!=null||!FlushPendingSave()){Status.Text="Finish transcription or resolve the save failure before restoring.";return;}
-            if(_archiveReadFailed){Status.Text="Original archive unreadable. Restore is blocked to protect it.";return;}
+            // When the library was unreadable, its original was preserved as a separate copy at startup, so a restore
+            // may safely start a new library. Without that copy, writes stay blocked.
+            bool replacing=_archiveReadFailed;
+            if(replacing&&_unreadableCopy==null){Status.Text="Original archive unreadable and could not be preserved. Restore is blocked to protect it.";return;}
             var path=await PickFile(".json"); if(path==null)return;
-            var raw=JsonSerializer.Deserialize<List<SermonRecord?>>(await File.ReadAllTextAsync(path),ArchiveOptions) ?? throw new InvalidDataException("Invalid archive.");
-            if(raw.Any(x=>x==null||string.IsNullOrWhiteSpace(x.Id))) throw new InvalidDataException("Invalid sermon record.");
-            if(raw.Select(x=>x!.Id).Distinct(StringComparer.Ordinal).Count()!=raw.Count)throw new InvalidDataException("Backup contains duplicate identifiers.");
-            var records=NormalizeRecords(raw);
+            var plan=ArchiveRules.PlanRestore(_library,await File.ReadAllTextAsync(path));
             if(_transcription!=null||!FlushPendingSave())return;
-            var existing=_library.Select(x=>x.Id).ToHashSet(StringComparer.Ordinal);
-            var additions=records.Where(x=>!existing.Contains(x.Id)).ToList();
-            if(additions.Count==0){Status.Text="No new sermons to restore.";return;}
-            var before=_library.ToList();
-            try{
-                Directory.CreateDirectory(Path.GetDirectoryName(_libraryPath)!);
-                if(File.Exists(_libraryPath))File.Copy(_libraryPath,_libraryPath+".before-restore-"+Guid.NewGuid().ToString("N")+".json");
-                _library.AddRange(additions);PersistLibrary();
-            }catch{_library=before;throw;}
-            RefreshLibrary(); Status.Text=$"Restored {additions.Count} sermons; skipped {records.Count-additions.Count} existing records.";
+            if(plan.Additions.Count==0){Status.Text="No new sermons to restore; "+plan.Skipped+" already in your library.";return;}
+            if(replacing)_archiveReadFailed=false;
+            var error=LibraryFile.Transaction(_library,Array.Empty<string>(),()=>{
+                if(File.Exists(_libraryPath))File.Copy(_libraryPath,_libraryPath+".before-restore-"+DateTime.Now.ToString("yyyyMMdd-HHmmss")+"-"+Guid.NewGuid().ToString("N")[..6]+".json");
+                _library.AddRange(plan.Additions);
+            },PersistLibrary);
+            if(error!=null){if(replacing)_archiveReadFailed=true;RefreshLibrary();Status.Text="Restore failed: "+error.Message+" Your library was not changed.";return;}
+            _lastSaveFailed=false;
+            RefreshLibrary(); Status.Text=$"Restored {plan.Additions.Count} sermons; skipped {plan.Skipped} already in your library."+(replacing?" The unreadable original remains at "+_unreadableCopy+".":"");
         }catch(Exception ex){Status.Text="Restore failed: "+ex.Message;}
-
     }
 }
