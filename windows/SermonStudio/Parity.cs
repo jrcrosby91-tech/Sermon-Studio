@@ -136,6 +136,8 @@ public sealed partial class MainWindow
             var text=Transcript.Text;
             File.WriteAllText(Path.Combine(folder,name+".txt"),text);
             File.WriteAllText(Path.Combine(folder,name+".md"),"# "+SermonTitle.Text+"\n\n"+text);
+            WriteRtf(Path.Combine(folder,name+".rtf"),text);
+            WriteRtf(Path.Combine(folder,name+"-Outline.rtf"),Outline.Text);
             WriteDocx(Path.Combine(folder,name+".docx"),SermonTitle.Text,text);
             WriteDocx(Path.Combine(folder,name+"-Outline.docx"),SermonTitle.Text+" — Outline",Outline.Text);
             if(_srt.Length>0) File.WriteAllText(Path.Combine(folder,name+".srt"),_srt);
