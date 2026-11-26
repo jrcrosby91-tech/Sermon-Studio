@@ -52,6 +52,8 @@ struct StudioView: View {
     @State private var replacement = ""
     @State private var compare = false
     @State private var showOutline = false
+    @State private var outlineDraft = ""
+    @State private var outlineSource = ""
     @AppStorage("editorFontSize") private var fontSize = 18.0
     @AppStorage("appearanceMode") private var appearanceMode = "system"
     private var preferredAppearance: ColorScheme? {
@@ -93,6 +95,42 @@ struct StudioView: View {
             let detail = section.dropFirst().prefix(2).joined(separator: ". ")
             return (heading: "Point \(index + 1): " + heading, detail: detail)
         }
+    }
+    private func generateOutlineDraft() {
+        let text = activeText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else {
+            status = "Add or transcribe a sermon before generating an outline."
+            return
+        }
+        let sentences = text.replacingOccurrences(of: "\n", with: " ")
+            .components(separatedBy: CharacterSet(charactersIn: ".!?"))
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { $0.count > 18 }
+        guard !sentences.isEmpty else {
+            status = "Not enough transcript content to build an outline."
+            return
+        }
+        let intro = sentences.prefix(2).joined(separator: ". ")
+        let conclusion = sentences.suffix(2).joined(separator: ". ")
+        var lines = ["SERMON OUTLINE (REVIEW DRAFT)",
+                     "Title: " + (title.isEmpty ? "Untitled sermon" : title),
+                     "Central message: [Write the main theme after reviewing the transcript]",
+                     "",
+                     "INTRODUCTION", String(intro.prefix(450)), "",
+                     "MAIN POINTS"]
+        for item in outline {
+            lines.append(item.heading)
+            if !item.detail.isEmpty { lines.append("  Supporting excerpt: " + String(item.detail.prefix(350))) }
+        }
+        lines.append(contentsOf: ["", "SCRIPTURE REFERENCES"])
+        lines.append(contentsOf: references.isEmpty ? ["[No explicit references detected]"] : references)
+        lines.append(contentsOf: ["", "APPLICATION", "[Identify practical applications from the sermon]", "",
+                                 "CONCLUSION", String(conclusion.prefix(450)), "",
+                                 "Note: This is a transcript-based draft, not an AI interpretation. Verify all headings and references."])
+        outlineDraft = lines.joined(separator: "\n")
+        outlineSource = text
+        showOutline = true
+        status = "Editable sermon outline generated. Review all sections before sharing."
     }
     private let models = ["base.en", "small.en", "medium.en", "large-v3-v20240930_626MB"]
     private func resolvedModel(_ selection: String) -> String {
@@ -171,13 +209,27 @@ struct StudioView: View {
                             }
                             Text("Verify references against scripture.").font(.caption)
                         }
-                        DisclosureGroup("Draft sermon outline", isExpanded: $showOutline) {
+                        DisclosureGroup("Sermon outline editor", isExpanded: $showOutline) {
                             VStack(alignment: .leading, spacing: 10) {
-                                ForEach(Array(outline.enumerated()), id: \.offset) { entry in
-                                    Text(entry.element.heading).font(.headline)
-                                    if !entry.element.detail.isEmpty { Text(String(entry.element.detail.prefix(240))).font(.callout).foregroundStyle(.secondary) }
+                                HStack {
+                                    Button("Generate outline") { generateOutlineDraft() }
+                                    Button("Copy outline") { NSPasteboard.general.clearContents(); NSPasteboard.general.setString(outlineDraft, forType: .string) }
+                                        .disabled(outlineDraft.isEmpty)
                                 }
-                                Text("Draft outline derived from transcript passages. Review before using.").font(.caption).foregroundStyle(.secondary)
+                                if !outlineDraft.isEmpty {
+                                    if outlineSource != activeText {
+                                        Text("Transcript changed since generation. Regenerate to include your edits.")
+                                            .font(.caption).foregroundStyle(.orange)
+                                    }
+                                    TextEditor(text: $outlineDraft)
+                                        .font(.system(.body, design: .monospaced))
+                                        .frame(minHeight: 300)
+                                    Text("Edit the outline directly. Copy it to use in your notes. Outline changes are not yet saved in the sermon library.")
+                                        .font(.caption).foregroundStyle(.secondary)
+                                } else {
+                                    Text("Generate an editable draft with introduction, numbered points, Scripture references, application and conclusion.")
+                                        .foregroundStyle(.secondary)
+                                }
                                 Button("Collapse outline") { showOutline = false }
                             }
                             .frame(maxWidth: .infinity, alignment: .leading)
