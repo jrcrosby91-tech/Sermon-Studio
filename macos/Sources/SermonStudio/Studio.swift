@@ -173,9 +173,9 @@ struct StudioView: View {
                         }
                         DisclosureGroup("Draft sermon outline", isExpanded: $showOutline) {
                             VStack(alignment: .leading, spacing: 10) {
-                                ForEach(Array(outline.enumerated()), id: \.offset) { _, point in
-                                    Text(point.heading).font(.headline)
-                                    if !point.detail.isEmpty { Text(String(point.detail.prefix(240))).font(.callout).foregroundStyle(.secondary) }
+                                ForEach(Array(outline.enumerated()), id: \.offset) { entry in
+                                    Text(entry.element.heading).font(.headline)
+                                    if !entry.element.detail.isEmpty { Text(String(entry.element.detail.prefix(240))).font(.callout).foregroundStyle(.secondary) }
                                 }
                                 Text("Draft outline derived from transcript passages. Review before using.").font(.caption).foregroundStyle(.secondary)
                                 Button("Collapse outline") { showOutline = false }
