@@ -73,11 +73,36 @@ public sealed partial class MainWindow
         App.Log("Attaching interface");
         root.Loaded += (_, _) => App.Log("Root Loaded");
         root.LayoutUpdated += OnFirstLayout;
-        Content = root;
+        var shell = new Grid();
+        shell.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(190) });
+        shell.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        var sidebar = new StackPanel { Padding = new Thickness(16), Spacing = 12, Background = new SolidColorBrush(Windows.UI.Color.FromArgb(255, 25, 43, 65)) };
+        sidebar.Children.Add(new TextBlock { Text = "SERMON STUDIO", FontSize = 17, Foreground = new SolidColorBrush(Microsoft.UI.Colors.White), Margin = new Thickness(0,12,0,20) });
+        void Navigate(string name, Action action) {
+            var button = new Button { Content = name, HorizontalAlignment = HorizontalAlignment.Stretch };
+            button.Click += (_, _) => { PageTitle.Text = name; action(); };
+            sidebar.Children.Add(button);
+        }
+        void Show(bool transcript, bool outline, bool library) {
+            Transcript.Visibility = transcript ? Visibility.Visible : Visibility.Collapsed;
+            Outline.Visibility = outline ? Visibility.Visible : Visibility.Collapsed;
+            scroll.Visibility = library ? Visibility.Visible : Visibility.Collapsed;
+            workspace.ColumnDefinitions[0].Width = transcript ? new GridLength(1, GridUnitType.Star) : new GridLength(0);
+            workspace.ColumnDefinitions[1].Width = outline ? new GridLength(1, GridUnitType.Star) : new GridLength(0);
+            workspace.ColumnDefinitions[2].Width = library ? new GridLength(transcript || outline ? 230 : 1, transcript || outline ? GridUnitType.Pixel : GridUnitType.Star) : new GridLength(0);
+        }
+        Navigate("New sermon", () => { New_Click(this, null!); Show(true,true,true); });
+        Navigate("Transcript editor", () => Show(true,false,true));
+        Navigate("Sermon outlines", () => Show(true,true,false));
+        Navigate("Sermon library", () => Show(false,false,true));
+        Navigate("Full workspace", () => Show(true,true,true));
+        Navigate("Settings", () => Show(false,false,true));
+        shell.Children.Add(sidebar); Grid.SetColumn(root,1); shell.Children.Add(root);
+        Content = shell;
     }
     private void OnFirstLayout(object? sender, object e)
     {
-        if (Content is FrameworkElement root) root.LayoutUpdated -= OnFirstLayout;
+        if (sender is FrameworkElement root) root.LayoutUpdated -= OnFirstLayout;
         App.Log("First layout completed");
     }
 }
