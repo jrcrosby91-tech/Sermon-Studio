@@ -139,20 +139,31 @@ public sealed partial class MainWindow
             WriteRtf(Path.Combine(folder,name+".rtf"),text);
             WriteRtf(Path.Combine(folder,name+"-Outline.rtf"),Outline.Text);
             WriteDocx(Path.Combine(folder,name+".docx"),SermonTitle.Text,text);
-            WriteDocx(Path.Combine(folder,name+"-Outline.docx"),SermonTitle.Text+" — Outline",Outline.Text);
+            WriteDocx(Path.Combine(folder,name+"-Outline.docx"),SermonTitle.Text+" — Outline",Outline.Text,true);
             if(_srt.Length>0) File.WriteAllText(Path.Combine(folder,name+".srt"),_srt);
             if(_vtt.Length>0) File.WriteAllText(Path.Combine(folder,name+".vtt"),_vtt);
             Status.Text="Exported TXT, Markdown, DOCX and available timestamps to "+folder;
         } catch(Exception ex){Status.Text="Export failed: "+ex.Message;}
     }
-    private static void WriteDocx(string path,string title,string body)
+    private static void WriteDocx(string path,string title,string body,bool formatted=false)
     {
         XNamespace w="http://schemas.openxmlformats.org/wordprocessingml/2006/main";
         XNamespace xml=XNamespace.Xml;
         // Strip characters XML 1.0 forbids (e.g. stray control codes from transcripts); they make the writer throw.
         static string XmlSafe(string s)=>new string(s.Where(c=>XmlConvert.IsXmlChar(c)||char.IsSurrogate(c)).ToArray());
-        var paragraphs=(title+"\n"+body).Split('\n').Select(line =>
-            new XElement(w+"p", new XElement(w+"r", new XElement(w+"t", new XAttribute(xml+"space","preserve"), XmlSafe(line.TrimEnd('\r'))))));
+        var paragraphs=(title+"\n"+body).Split('\n').Select((raw,index)=>{
+            var line=raw.TrimEnd('\r');bool heading=index==0||(formatted&&line.StartsWith("#"));bool quote=formatted&&line.StartsWith(">");bool bullet=formatted&&(line.StartsWith("- ")||line.StartsWith("* "));
+            int size=index==0?36:line.StartsWith("###")?28:32;
+            if(formatted&&heading&&index!=0)line=line.TrimStart('#',' ');
+            if(quote)line=line.TrimStart('>',' ');if(bullet)line="• "+line.Substring(2);
+            var paragraph=new XElement(w+"p");
+            if(heading||quote||bullet)paragraph.Add(new XElement(w+"pPr",new XElement(w+"spacing",new XAttribute(w+"after","120")),quote||bullet?new XElement(w+"ind",new XAttribute(w+"left","360")):null));
+            foreach(var part in formatted?Regex.Split(line,@"(\*\*[^*]+\*\*|\*[^*]+\*)"):new[]{line}){
+                bool bold=heading||(formatted&&part.StartsWith("**")&&part.EndsWith("**"));bool italic=quote||(formatted&&!bold&&part.StartsWith("*")&&part.EndsWith("*"));
+                paragraph.Add(new XElement(w+"r",new XElement(w+"rPr",bold?new XElement(w+"b"):null,italic?new XElement(w+"i"):null,heading?new XElement(w+"sz",new XAttribute(w+"val",size)):null),new XElement(w+"t",new XAttribute(xml+"space","preserve"),XmlSafe(formatted?part.Trim('*'):part))));
+            }
+            return paragraph;
+        });
         var doc=new XDocument(new XElement(w+"document",new XAttribute(XNamespace.Xmlns+"w",w),new XElement(w+"body",paragraphs)));
         using var zip=new ZipArchive(File.Create(path),ZipArchiveMode.Create);
         void Add(string name,string data){using var writer=new StreamWriter(zip.CreateEntry(name).Open(),new UTF8Encoding(false));writer.Write(data);}
