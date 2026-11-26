@@ -68,14 +68,31 @@ struct StudioView: View {
     @State private var contextVocabulary = ""
     private var activeText: String { useCleaned ? cleaned : original }
     private var references: [String] {
-        let books = "Genesis|Exodus|Leviticus|Numbers|Deuteronomy|Joshua|Judges|Ruth|Samuel|Kings|Chronicles|Ezra|Nehemiah|Esther|Job|Psalms?|Proverbs|Ecclesiastes|Song of Solomon|Isaiah|Jeremiah|Lamentations|Ezekiel|Daniel|Hosea|Joel|Amos|Obadiah|Jonah|Micah|Nahum|Habakkuk|Zephaniah|Haggai|Zechariah|Malachi|Matthew|Mark|Luke|John|Acts|Romans|Corinthians|Galatians|Ephesians|Philippians|Colossians|Thessalonians|Timothy|Titus|Philemon|Hebrews|James|Peter|Jude|Revelation"
-        let pattern = "\\\\b(?:[123]\\\\s*)?(?:" + books + ")\\\\s+\\\\d+(?::\\\\d+(?:[-–]\\\\d+)?)?"
+        let books = "Genesis|Exodus|Leviticus|Numbers|Deuteronomy|Joshua|Judges|Ruth|1 Samuel|2 Samuel|1 Kings|2 Kings|1 Chronicles|2 Chronicles|Ezra|Nehemiah|Esther|Job|Psalms?|Proverbs|Ecclesiastes|Song of Solomon|Isaiah|Jeremiah|Lamentations|Ezekiel|Daniel|Hosea|Joel|Amos|Obadiah|Jonah|Micah|Nahum|Habakkuk|Zephaniah|Haggai|Zechariah|Malachi|Matthew|Mark|Luke|John|Acts|Romans|1 Corinthians|2 Corinthians|Galatians|Ephesians|Philippians|Colossians|1 Thessalonians|2 Thessalonians|1 Timothy|2 Timothy|Titus|Philemon|Hebrews|James|1 Peter|2 Peter|1 John|2 John|3 John|Jude|Revelation"
+        let pattern = "\\b(?:" + books + ")\\s+\\d+(?::\\d+(?:[-–]\\d+)?)?\\b"
         guard let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]) else { return [] }
-        let source = activeText as NSString
-        return Array(Set(regex.matches(in: activeText, range: NSRange(location: 0, length: source.length)).map { source.substring(with: $0.range) })).sorted()
+        let ns = activeText as NSString
+        var seen = Set<String>()
+        return regex.matches(in: activeText, range: NSRange(location: 0, length: ns.length))
+            .map { ns.substring(with: $0.range) }
+            .filter { seen.insert($0.lowercased()).inserted }
     }
-    private var outline: [String] {
-        Array(activeText.components(separatedBy: CharacterSet(charactersIn: ".!?")).map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { $0.count > 40 }.prefix(5))
+    private var outline: [(heading: String, detail: String)] {
+        let sentences = activeText
+            .replacingOccurrences(of: "\n", with: " ")
+            .components(separatedBy: CharacterSet(charactersIn: ".!?"))
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { $0.count >= 20 }
+        guard !sentences.isEmpty else { return [] }
+        let count = min(5, sentences.count)
+        let sectionSize = max(1, Int(ceil(Double(sentences.count) / Double(count))))
+        return stride(from: 0, to: sentences.count, by: sectionSize).prefix(count).enumerated().map { index, offset in
+            let section = Array(sentences[offset..<min(offset + sectionSize, sentences.count)])
+            let first = section[0]
+            let heading = first.count > 72 ? String(first.prefix(69)) + "…" : first
+            let detail = section.dropFirst().prefix(2).joined(separator: ". ")
+            return (heading: "Point \(index + 1): " + heading, detail: detail)
+        }
     }
     private let models = ["base.en", "small.en", "medium.en", "large-v3-v20240930_626MB"]
     private func resolvedModel(_ selection: String) -> String {
@@ -105,7 +122,7 @@ struct StudioView: View {
                     DisclosureGroup("Advanced transcription settings") {
                         Toggle("Biblical vocabulary assistance (experimental)", isOn: $biblicalAssistance)
                         TextField("Names and vocabulary", text: $contextVocabulary)
-                        Text("Context prompts are not yet supported in this native build.").font(.caption)
+                        Text("Vocabulary is saved for reference; this WhisperKit version does not apply prompt hints during transcription.").font(.caption)
                     }
                     if let player {
                         HStack {
@@ -154,13 +171,13 @@ struct StudioView: View {
                             }
                             Text("Verify references against scripture.").font(.caption)
                         }
-                        DisclosureGroup("Extractive outline", isExpanded: $showOutline) {
+                        DisclosureGroup("Draft sermon outline", isExpanded: $showOutline) {
                             VStack(alignment: .leading, spacing: 10) {
-                                ForEach(Array(outline.enumerated()), id: \.offset) { index, excerpt in
-                                    Text("\(index + 1). \(String(excerpt.prefix(220)))\(excerpt.count > 220 ? "…" : "")")
-                                        .font(.callout)
-                                        .fixedSize(horizontal: false, vertical: true)
+                                ForEach(Array(outline.enumerated()), id: \.offset) { _, point in
+                                    Text(point.heading).font(.headline)
+                                    if !point.detail.isEmpty { Text(String(point.detail.prefix(240))).font(.callout).foregroundStyle(.secondary) }
                                 }
+                                Text("Draft outline derived from transcript passages. Review before using.").font(.caption).foregroundStyle(.secondary)
                                 Button("Collapse outline") { showOutline = false }
                             }
                             .frame(maxWidth: .infinity, alignment: .leading)
@@ -181,7 +198,8 @@ struct StudioView: View {
                                 }
                             }
                         }
-                        HStack { Button("Save to library", action: save); Button("Export TXT") { export("txt") }; Button("Export Markdown") { export("md") }; Button("Export RTF") { export("rtf") }; Button("Export DOCX") { export("docx") }; Button("Export SRT") { export("srt") }; Button("Export VTT") { export("vtt") }; Button("Print / PDF") { printTranscript() } }
+                        HStack { Button("Save to library", action: save); Button("Export DOCX") { export("docx") }; Button("Print / PDF") { printTranscript() } }
+                        HStack { Button("Export TXT") { export("txt") }; Button("Export Markdown") { export("md") }; Button("Export RTF") { export("rtf") }; Button("Export SRT") { export("srt") }; Button("Export VTT") { export("vtt") } }
                         }
                     }
                 } else if page == "Sermon library" {
