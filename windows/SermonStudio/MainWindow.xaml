@@ -19,7 +19,7 @@
                 <RowDefinition Height="Auto"/>
             </Grid.RowDefinitions>
             <TextBlock x:Name="PageTitle" Text="Sermon Studio" FontFamily="Georgia" FontSize="32" FontWeight="SemiBold"/>
-            <StackPanel Grid.Row="1" Orientation="Horizontal" Spacing="10">
+            <StackPanel Grid.Row="1" Spacing="6"><ScrollViewer HorizontalScrollMode="Enabled" HorizontalScrollBarVisibility="Auto" VerticalScrollMode="Disabled"><StackPanel Orientation="Horizontal" Spacing="10">
                 <TextBox x:Name="SermonTitle" Header="Sermon title" Width="280" Text="Untitled sermon"/>
                 <ComboBox x:Name="Generator" Header="Outline generator" Width="190" SelectedIndex="0">
                     <ComboBoxItem Content="Original (default)"/>
@@ -29,6 +29,22 @@
                 <Button Content="Save sermon" Click="Save_Click" VerticalAlignment="Bottom"/>
                 <Button Content="New" Click="New_Click" VerticalAlignment="Bottom"/>
                 <Button Content="Export outline" Click="Export_Click" VerticalAlignment="Bottom"/>
+            </StackPanel></ScrollViewer>
+                <ScrollViewer HorizontalScrollMode="Enabled" HorizontalScrollBarVisibility="Auto" VerticalScrollMode="Disabled"><StackPanel Orientation="Horizontal" Spacing="6">
+                    <Button Content="Import audio" Click="ImportAudio_Click"/>
+                    <Button Content="Transcribe" Click="Transcribe_Click"/>
+                    <Button Content="Cancel" Click="Cancel_Click"/>
+                    <Button Content="Clean" Click="Clean_Click"/>
+                    <Button Content="Original" Click="Original_Click"/>
+                    <TextBox x:Name="FindText" PlaceholderText="Find phrase" Width="150"/>
+                    <Button Content="Find" Click="Find_Click"/>
+                    <TextBox x:Name="Replacement" PlaceholderText="Replace with" Width="150"/>
+                    <Button Content="Replace all" Click="Replace_Click"/>
+                    <Button Content="Scripture" Click="Scripture_Click"/>
+                    <Button Content="Export documents" Click="ExportMore_Click"/>
+                </StackPanel></ScrollViewer>
+                <ProgressBar x:Name="TranscriptionProgress" IsIndeterminate="False" Height="4"/>
+                <MediaPlayerElement x:Name="AudioPlayer" AreTransportControlsEnabled="True" Height="80"/>
             </StackPanel>
             <Grid Grid.Row="2" ColumnSpacing="10">
                 <Grid.ColumnDefinitions>
@@ -48,13 +64,13 @@
                     <TextBox x:Name="Outline" AcceptsReturn="True" TextWrapping="Wrap" VerticalAlignment="Stretch"
                              VerticalContentAlignment="Top" MinHeight="400" TextChanged="Outline_TextChanged"/>
                 </StackPanel>
-                <StackPanel Grid.Column="3" Spacing="8">
+                <ScrollViewer Grid.Column="3"><StackPanel Spacing="8">
                     <TextBlock Text="Sermon library" FontSize="20" FontWeight="SemiBold"/>
-                    <ListView x:Name="LibraryList" SelectionChanged="Library_SelectionChanged" DisplayMemberPath="Title" MinHeight="350"/>
+                    <ListView x:Name="LibraryList" SelectionChanged="Library_SelectionChanged" DisplayMemberPath="Title" Height="180"/>
                     <TextBlock Text="Ollama model" FontSize="14"/>
                     <TextBox x:Name="OllamaModel" Text="llama3.2:3b" PlaceholderText="Installed local model"/>
-                    <TextBlock Text="Exports are saved to Documents/Sermon Studio" TextWrapping="Wrap" Opacity=".7"/>
-                </StackPanel>
+                    <TextBox x:Name="WhisperPath" Header="Whisper CLI executable" PlaceholderText="C:\\whisper\\whisper-cli.exe"/><TextBox x:Name="WhisperModel" Header="GGML model file"/><TextBox x:Name="FfmpegPath" Header="FFmpeg executable (optional)"/><Button Content="Backup archive" Click="Backup_Click"/><Button Content="Restore archive" Click="Restore_Click"/><TextBlock Text="Scripture references" FontWeight="SemiBold"/><TextBlock x:Name="ScriptureResults" TextWrapping="Wrap" IsTextSelectionEnabled="True"/><TextBlock Text="Exports are saved to Documents/Sermon Studio" TextWrapping="Wrap" Opacity=".7"/>
+                </StackPanel></ScrollViewer>
             </Grid>
             <TextBlock x:Name="Status" Grid.Row="3" Text="Ready. Original outlines work offline." Opacity=".7"/>
         </Grid>
