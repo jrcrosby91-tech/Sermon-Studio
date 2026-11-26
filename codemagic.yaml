@@ -44,7 +44,7 @@ workflows:
           uname -m
           swift --version
           set +e
-          CI=1 SERMON_VERSION=3.1.0 SERMON_BUILD_NUMBER=7 bash macos/build-local.sh
+          CI=1 SERMON_VERSION=3.2.0 SERMON_BUILD_NUMBER=8 bash macos/build-local.sh
           result=$?
           if [ "$result" -ne 0 ]; then
             echo '========== BUILD ERRORS =========='
@@ -69,8 +69,8 @@ workflows:
       groups:
         - sermon_studio_release
       vars:
-        SERMON_VERSION: "3.1.0"
-        SERMON_BUILD_NUMBER: "7"
+        SERMON_VERSION: "3.2.0"
+        SERMON_BUILD_NUMBER: "8"
     scripts:
       - name: Validate release credentials and version
         script: |
