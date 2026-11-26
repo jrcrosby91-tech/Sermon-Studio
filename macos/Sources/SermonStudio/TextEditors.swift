@@ -228,7 +228,7 @@ struct RichOutlineEditor: NSViewRepresentable {
         context.coordinator.textView = textView
         controller.textView = textView
         controller.baseSize = baseSize
-        controller.flushHandler = { [weak coordinator = context.coordinator] in coordinator?.store() }
+        controller.flushHandler = { [weak coordinator = context.coordinator] in coordinator?.store(deferPublishing: false) }
         context.coordinator.load(markdown)
         return scroll
     }
@@ -247,7 +247,8 @@ struct RichOutlineEditor: NSViewRepresentable {
     }
 
     static func dismantleNSView(_ scroll: NSScrollView, coordinator: Coordinator) {
-        coordinator.store()
+        // Convert now (the text view is about to go away) but publish after the current view update.
+        coordinator.store(deferPublishing: true)
         coordinator.timer?.invalidate()
     }
 
@@ -284,7 +285,7 @@ struct RichOutlineEditor: NSViewRepresentable {
         }
 
         /// Converts the rich text to Markdown and merges it with the stored outline.
-        func store() {
+        func store(deferPublishing: Bool = false) {
             timer?.invalidate(); timer = nil
             guard dirty, !syncing, let textView, let storage = textView.textStorage else { return }
             let base = loadedSize > 0 ? loadedSize : parent.baseSize
@@ -299,7 +300,11 @@ struct RichOutlineEditor: NSViewRepresentable {
             let merged = OutlineMarkdown.mergeVisualEdit(original: lastMarkdown, updated: updated, baseSize: base)
             dirty = false
             lastMarkdown = merged
-            if OutlineMarkdown.normalizeNewlines(parent.markdown) != merged { parent.markdown = merged }
+            guard OutlineMarkdown.normalizeNewlines(parent.markdown) != merged else { return }
+            if deferPublishing {
+                let binding = parent.$markdown
+                DispatchQueue.main.async { binding.wrappedValue = merged }
+            } else { parent.markdown = merged }
         }
 
         func textView(_ textView: NSTextView, shouldChangeTextIn range: NSRange, replacementString: String?) -> Bool {

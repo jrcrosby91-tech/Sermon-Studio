@@ -290,6 +290,8 @@ struct TranscriptView: View {
     @State private var compare = false
     @State private var showDetails = true
     @State private var preview: ScriptureReference?
+    @State private var references: [ScriptureReference] = []
+    @State private var words = 0
     @FocusState private var findFocused: Bool
 
     private var text: Binding<String> { model.editingCleaned ? $model.draft.cleaned : $model.draft.original }
@@ -321,6 +323,28 @@ struct TranscriptView: View {
         }
         .padding(16)
         .onChange(of: findText) { _, _ in current = -1 }
+        .task(id: analysisKey) {
+            // Scripture detection and word counts run off the main thread after typing pauses, so long transcripts stay responsive.
+            try? await Task.sleep(nanoseconds: 400_000_000)
+            guard !Task.isCancelled else { return }
+            let transcript = text.wrappedValue, outline = model.draft.outline
+            let result = await Task.detached(priority: .utility) { () -> ([ScriptureReference], Int) in
+                var seen = Set<String>()
+                let found = ScriptureReferences.find(transcript + "\n" + outline).filter { seen.insert($0.canonical.lowercased()).inserted }
+                return (found, TranscriptTools.wordCount(transcript))
+            }.value
+            guard !Task.isCancelled else { return }
+            references = result.0
+            words = result.1
+        }
+    }
+
+    private var analysisKey: Int {
+        var hasher = Hasher()
+        hasher.combine(model.editingCleaned)
+        hasher.combine(text.wrappedValue)
+        hasher.combine(model.draft.outline)
+        return hasher.finalize()
     }
 
     private var toolbar: some View {
@@ -330,7 +354,7 @@ struct TranscriptView: View {
             Button("Clean Transcript") { model.cleanTranscript() }.help("Creates a cleaned copy without filler words. The original is never changed.")
             Toggle("Compare", isOn: $compare).toggleStyle(.button)
             Spacer()
-            Text("\(TranscriptTools.wordCount(text.wrappedValue)) words").foregroundStyle(.secondary).monospacedDigit()
+            Text("\(words) words").foregroundStyle(.secondary).monospacedDigit()
             Menu("Export") {
                 ForEach(ExportFormat.transcript) { format in Button(format.rawValue) { model.export(format, outline: false) } }
                 Divider()
@@ -379,7 +403,6 @@ struct TranscriptView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 12) {
                 Card(title: "Scripture references") {
-                    let references = uniqueReferences
                     if references.isEmpty { Text("No references detected yet.").font(.callout).foregroundStyle(.secondary) }
                     ForEach(references, id: \.canonical) { reference in
                         HStack {
@@ -407,11 +430,6 @@ struct TranscriptView: View {
                 }
             }
         }
-    }
-
-    private var uniqueReferences: [ScriptureReference] {
-        var seen = Set<String>()
-        return ScriptureReferences.find(text.wrappedValue + "\n" + model.draft.outline).filter { seen.insert($0.canonical.lowercased()).inserted }
     }
 }
 
