@@ -43,18 +43,21 @@ public sealed partial class MainWindow
         SermonTitle = Field(top,"Sermon title","Untitled sermon",240);
         Generator = new ComboBox { Header = "Outline generator", Width = 180 };
         Generator.Items.Add("Original (default)"); Generator.Items.Add("Ollama (optional)"); Generator.SelectedIndex = 0; top.Children.Add(Generator);
-        ButtonFor(top,"Generate outline",Generate_Click); ButtonFor(top,"Save sermon",Save_Click); ButtonFor(top,"New",New_Click); ButtonFor(top,"Export outline",Export_Click);
+        ButtonFor(top,"Generate outline",Generate_Click); ButtonFor(top,"Save sermon",Save_Click); ButtonFor(top,"New",New_Click); var exports=new DropDownButton{Content="Export"};var menu=new MenuFlyout();
+        void ExportItem(string label,RoutedEventHandler handler){var item=new MenuFlyoutItem{Text=label};item.Click+=handler;menu.Items.Add(item);}
+        ExportItem("Outline • Markdown",Export_Click);ExportItem("PDF document",Pdf_Click);ExportItem("Word, RTF and transcript files",ExportMore_Click);exports.Flyout=menu;top.Children.Add(exports);
         var actions = Bar();
         ButtonFor(actions,"Import audio",ImportAudio_Click); ButtonFor(actions,"Transcribe",Transcribe_Click); ButtonFor(actions,"Cancel",Cancel_Click);
         ButtonFor(actions,"Clean",Clean_Click); ButtonFor(actions,"Original",Original_Click);
         FindText = Field(actions,"Find","",130); ButtonFor(actions,"Find",Find_Click);
         Replacement = Field(actions,"Replace with","",130); ButtonFor(actions,"Replace all",Replace_Click);
-        ButtonFor(actions,"Scripture",Scripture_Click); ButtonFor(actions,"Export documents",ExportMore_Click);
+        ButtonFor(actions,"Scripture",Scripture_Click); ButtonFor(actions,"Compare",Compare_Click);
         TranscriptionProgress = new ProgressBar { Height = 4 }; tools.Children.Add(TranscriptionProgress);
         App.Log("Building interface: audio player");
         AudioPlayer = new MediaPlayerElement { AreTransportControlsEnabled = true, Height = 80 };
         // Attach media controls only when an audio file is imported.
-        _audioHost = tools;
+        var playback=new StackPanel{Spacing=4};
+        _audioHost = playback;
         App.Log("Building interface: editors");
         var workspace = new Grid { ColumnSpacing = 10 };
         workspace.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1,GridUnitType.Star) });
@@ -71,6 +74,43 @@ public sealed partial class MainWindow
             var card=Card(panel);editorCards.Add(card);Grid.SetColumn(card,column);workspace.Children.Add(card);return editor;
         }
         Transcript = Editor("Transcript",0); Outline = Editor("Sermon outline",1);
+        var transcriptPanel=(Grid)editorCards[0].Child;
+        var outlinePanel=(Grid)editorCards[1].Child;
+        transcriptPanel.RowDefinitions.Add(new RowDefinition{Height=GridLength.Auto});
+        Grid.SetRow(playback,2);transcriptPanel.Children.Add(playback);
+        var timed=new StackPanel{Spacing=8};var timedScroll=new ScrollViewer{Content=timed,Visibility=Visibility.Collapsed};
+        Grid.SetRow(timedScroll,1);transcriptPanel.Children.Add(timedScroll);
+        var preview=new StackPanel{Spacing=8};var previewScroll=new ScrollViewer{Content=preview,Visibility=Visibility.Collapsed};
+        Grid.SetRow(previewScroll,1);outlinePanel.Children.Add(previewScroll);
+        var timedToggle=new Button{Content="Timestamp view",HorizontalAlignment=HorizontalAlignment.Right};
+        transcriptPanel.Children.Add(timedToggle);
+        timedToggle.Click+=(_,_)=>{
+            bool show=timedScroll.Visibility!=Visibility.Visible;
+            timed.Children.Clear();
+            if(show){
+                foreach(var segment in ParseSegments(_srt)){
+                    var row=new Grid{ColumnSpacing=10};row.ColumnDefinitions.Add(new ColumnDefinition{Width=GridLength.Auto});row.ColumnDefinitions.Add(new ColumnDefinition{Width=new GridLength(1,GridUnitType.Star)});
+                    var stamp=new Button{Content=TimeSpan.FromSeconds(segment.Start).ToString(@"hh\:mm\:ss"),Foreground=gold};
+                    stamp.Click+=(_,_)=>{if(_player!=null)_player.PlaybackSession.Position=TimeSpan.FromSeconds(segment.Start);else Status.Text="Import the original recording to seek.";};
+                    var words=new TextBlock{Text=segment.Text,TextWrapping=TextWrapping.Wrap,FontSize=17,FontFamily=new FontFamily("Georgia")};Grid.SetColumn(words,1);row.Children.Add(stamp);row.Children.Add(words);timed.Children.Add(row);
+                }
+                if(timed.Children.Count==0)timed.Children.Add(new TextBlock{Text="No timestamps available."});
+            }
+            timedScroll.Visibility=show?Visibility.Visible:Visibility.Collapsed;Transcript.Visibility=show?Visibility.Collapsed:Visibility.Visible;timedToggle.Content=show?"Edit transcript":"Timestamp view";
+        };
+        var previewToggle=new Button{Content="Formatted view",HorizontalAlignment=HorizontalAlignment.Right};outlinePanel.Children.Add(previewToggle);
+        previewToggle.Click+=(_,_)=>{
+            bool show=previewScroll.Visibility!=Visibility.Visible;preview.Children.Clear();
+            if(show)foreach(var raw in Outline.Text.Split('\n')){
+                var line=raw.Trim();if(line.Length==0)continue;
+                bool heading=line.StartsWith("#")||System.Text.RegularExpressions.Regex.IsMatch(line,@"^[IVXLCDM]+\.\s");
+                var text=new TextBlock{Text=line.TrimStart('#',' ').Replace("**",""),TextWrapping=TextWrapping.Wrap,FontFamily=new FontFamily("Georgia"),FontSize=heading?22:17};
+                if(heading){text.Foreground=gold;text.FontWeight=Microsoft.UI.Text.FontWeights.SemiBold;}
+                if(line.StartsWith("- ")||line.StartsWith("* ")) {text.Text="• "+line.Substring(2);text.Margin=new Thickness(18,0,0,0);}
+                preview.Children.Add(text);
+            }
+            previewScroll.Visibility=show?Visibility.Visible:Visibility.Collapsed;Outline.Visibility=show?Visibility.Collapsed:Visibility.Visible;previewToggle.Content=show?"Edit outline":"Formatted view";
+        };
         var divider = new Border { Width=8, HorizontalAlignment=HorizontalAlignment.Right, Background=new SolidColorBrush(Microsoft.UI.Colors.SlateGray), ManipulationMode=ManipulationModes.TranslateX };
         Grid.SetColumn(divider,0); workspace.Children.Add(divider);
         editorCards[0].Margin=new Thickness(0,0,12,0);
@@ -108,10 +148,14 @@ public sealed partial class MainWindow
         shell.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(220) });
         shell.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         var sidebar = new StackPanel { Padding = new Thickness(16), Spacing = 12, Background = new SolidColorBrush(Windows.UI.Color.FromArgb(255, 25, 43, 65)) };
-        sidebar.Children.Add(new TextBlock { Text = "✝\nSermon Studio", TextAlignment=TextAlignment.Center, FontFamily=new FontFamily("Georgia"), FontSize = 26, Foreground = new SolidColorBrush(Microsoft.UI.Colors.White), Margin = new Thickness(0,12,0,20) });
+        var logo=new Canvas{Width=88,Height=70,HorizontalAlignment=HorizontalAlignment.Center};
+        void Stroke(double x1,double y1,double x2,double y2){logo.Children.Add(new Microsoft.UI.Xaml.Shapes.Line{X1=x1,Y1=y1,X2=x2,Y2=y2,Stroke=gold,StrokeThickness=3});}
+        Stroke(4,25,24,19);Stroke(24,19,44,28);Stroke(44,28,64,19);Stroke(64,19,84,25);Stroke(84,25,84,61);Stroke(84,61,64,55);Stroke(64,55,44,65);Stroke(44,65,24,55);Stroke(24,55,4,61);Stroke(4,61,4,25);Stroke(44,28,44,65);Stroke(44,2,44,24);Stroke(34,10,54,10);sidebar.Children.Add(logo);
+        sidebar.Children.Add(new TextBlock { Text = "Sermon Studio", TextAlignment=TextAlignment.Center, FontFamily=new FontFamily("Georgia"), FontSize = 26, Foreground = new SolidColorBrush(Microsoft.UI.Colors.White), Margin = new Thickness(0,12,0,20) });
         void Navigate(string name, Action action) {
-            var button = new Button { Content = name, HorizontalAlignment = HorizontalAlignment.Stretch, HorizontalContentAlignment=HorizontalAlignment.Left, Background=new SolidColorBrush(Microsoft.UI.Colors.Transparent), Foreground=new SolidColorBrush(Microsoft.UI.Colors.White), BorderThickness=new Thickness(0), CornerRadius=new CornerRadius(8), Padding=new Thickness(12,12,12,12) };navButtons.Add(button);
-            button.Click += (_, _) => { foreach(var b in navButtons){b.Background=new SolidColorBrush(Microsoft.UI.Colors.Transparent);b.Foreground=new SolidColorBrush(Microsoft.UI.Colors.White);}button.Background=gold;button.Foreground=navy;PageTitle.Text = name; tools.Visibility=Visibility.Visible; action(); };
+            var navContent=new StackPanel{Orientation=Orientation.Horizontal,Spacing=10};navContent.Children.Add(new FontIcon{Glyph=name switch {"New sermon"=>"\uE710","Transcript editor"=>"\uE70F","Sermon outlines"=>"\uE8A5","Sermon library"=>"\uE8B7","Settings"=>"\uE713","Scripture references"=>"\uE82D","Transcribe audio"=>"\uE720",_=>"\uE8A9"},FontFamily=new FontFamily("Segoe MDL2 Assets"),FontSize=18});navContent.Children.Add(new TextBlock{Text=name});
+            var button = new Button { Content = navContent, HorizontalAlignment = HorizontalAlignment.Stretch, HorizontalContentAlignment=HorizontalAlignment.Left, Background=new SolidColorBrush(Microsoft.UI.Colors.Transparent), Foreground=new SolidColorBrush(Microsoft.UI.Colors.White), BorderThickness=new Thickness(0), CornerRadius=new CornerRadius(8), Padding=new Thickness(12,12,12,12) };navButtons.Add(button);
+            button.Click += (_, _) => { foreach(var b in navButtons){b.Background=new SolidColorBrush(Microsoft.UI.Colors.Transparent);b.Foreground=new SolidColorBrush(Microsoft.UI.Colors.White);}button.Background=gold;button.Foreground=navy;PageTitle.Text = name; tools.Visibility=Visibility.Visible; action(); actions.Visibility=name=="Sermon library"?Visibility.Collapsed:Visibility.Visible; };
             sidebar.Children.Add(button);
         }
         void Show(bool transcript, bool outline, bool library) {
@@ -119,6 +163,7 @@ public sealed partial class MainWindow
             editorCards[0].Visibility=transcript?Visibility.Visible:Visibility.Collapsed;
             editorCards[1].Visibility=outline?Visibility.Visible:Visibility.Collapsed;
             divider.Visibility=transcript && outline?Visibility.Visible:Visibility.Collapsed;
+            timedScroll.Visibility=Visibility.Collapsed;previewScroll.Visibility=Visibility.Collapsed;timedToggle.Content="Timestamp view";previewToggle.Content="Formatted view";
             Transcript.Visibility = transcript ? Visibility.Visible : Visibility.Collapsed;
             Outline.Visibility = outline ? Visibility.Visible : Visibility.Collapsed;
             scroll.Visibility = library ? Visibility.Visible : Visibility.Collapsed;
@@ -132,6 +177,7 @@ public sealed partial class MainWindow
         Navigate("Sermon library", () => Show(false,false,true));
         Navigate("Full workspace", () => Show(true,true,true));
         Navigate("Settings", () => { Show(false,false,true); scroll.Visibility=Visibility.Collapsed;settingsScroll.Visibility=Visibility.Visible;tools.Visibility=Visibility.Collapsed; });
+        Navigate("Transcribe audio",()=>Show(true,false,false));
         Navigate("Scripture references",()=>{Show(true,false,true);Scripture_Click(this,null!);});
         var theme = new ComboBox { Header="Appearance" }; theme.Items.Add("System");theme.Items.Add("Light");theme.Items.Add("Dark");theme.SelectedIndex=0;
         var settingsPath=Path.Combine(Path.GetDirectoryName(_libraryPath)!,"appearance.txt");
