@@ -89,7 +89,7 @@ public sealed partial class MainWindow : Window
     {
         if (_loading || LibraryList.SelectedItem is not SermonRecord item) return;
         if(_transcription!=null){RefreshLibrary();Status.Text="Finish or cancel transcription before switching sermons.";return;}
-        if (_autosave.IsRunning) { _autosave.Stop(); Save(); }
+        if (!FlushPendingSave()) { RefreshLibrary(); return; }
         _loading = true;
         _workspaceRevision++;ResetRecording();
         _selectedId = item.Id;
@@ -119,7 +119,7 @@ public sealed partial class MainWindow : Window
     {
         if(_transcription!=null){Status.Text="Finish or cancel transcription first.";return;}
         _workspaceRevision++;ResetRecording();
-        if (_autosave.IsRunning) { _autosave.Stop(); Save(); }
+        if (!FlushPendingSave()) return;
         _loading = true;
         _selectedId = null;
         LibraryList.SelectedItem = null;
@@ -197,9 +197,16 @@ public sealed partial class MainWindow : Window
 
     private void Save_Click(object sender, RoutedEventArgs e) => Save();
 
+    private bool FlushPendingSave(){
+        if(_autosave.IsRunning){_autosave.Stop();Save();}
+        return _saveIndicator?.Text!="Save failed";
+    }
+
     private void Save()
     {
         if(_archiveReadFailed){Status.Text="Library could not be read; saving is blocked to protect the original archive.";if(_saveIndicator!=null)_saveIndicator.Text="Save failed";return;}
+        var previousId=_selectedId;
+        var snapshot=JsonSerializer.Serialize(_library);
         try
         {
             var item = _library.FirstOrDefault(x => x.Id == _selectedId);
@@ -223,14 +230,12 @@ public sealed partial class MainWindow : Window
             if(_sermonFavorite!=null)item.Favorite=_sermonFavorite.IsChecked==true;
             item.LastEdited=DateTimeOffset.UtcNow;
             if (string.IsNullOrWhiteSpace(item.Date)) item.Date = DateTime.Today.ToString("yyyy-MM-dd");
-            Directory.CreateDirectory(Path.GetDirectoryName(_libraryPath)!);
-            File.WriteAllText(_libraryPath + ".tmp", JsonSerializer.Serialize(_library, new JsonSerializerOptions { WriteIndented = true }));
-            File.Move(_libraryPath + ".tmp", _libraryPath, true);
+            PersistLibrary();
             RefreshLibrary();
             Status.Text = "Sermon and outline saved locally.";
             if(_saveIndicator!=null) _saveIndicator.Text="Saved at "+DateTime.Now.ToString("t");
         }
-        catch (Exception ex) { Status.Text = "Save failed: " + ex.Message; if(_saveIndicator!=null) _saveIndicator.Text="Save failed"; }
+        catch (Exception ex) { _library=JsonSerializer.Deserialize<List<SermonRecord>>(snapshot)!;_selectedId=previousId;RefreshLibrary();Status.Text = "Save failed: " + ex.Message; if(_saveIndicator!=null) _saveIndicator.Text="Save failed"; }
     }
 
     private void PersistLibrary(){
