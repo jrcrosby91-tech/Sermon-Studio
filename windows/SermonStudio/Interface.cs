@@ -8,13 +8,23 @@ public sealed partial class MainWindow
     private void BuildInterface()
     {
         Title = "Sermon Studio";
+        SolidColorBrush Brush(byte r,byte g,byte b)=>new(Windows.UI.Color.FromArgb(255,r,g,b));
+        var gold=Brush(190,151,69);
+        var navy=Brush(20,36,55);
+        var cards=new List<Border>();
+        var headings=new List<TextBlock>();
+        var navButtons=new List<Button>();
+        Border Card(UIElement child) {
+            var b=new Border{Child=child,CornerRadius=new CornerRadius(12),BorderThickness=new Thickness(1),Padding=new Thickness(14)};
+            cards.Add(b);return b;
+        }
         App.Log("Building interface: toolbar");
         var root = new Grid { Padding = new Thickness(16), RowSpacing = 8 };
         root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         root.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
         root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-        PageTitle = new TextBlock { Text = "Sermon Studio", FontSize = 30 };
+        PageTitle = new TextBlock { Text = "Sermon Studio", FontSize = 32, FontFamily=new FontFamily("Georgia") };
         root.Children.Add(PageTitle);
         var tools = new StackPanel { Spacing = 6 };
         Grid.SetRow(tools, 1); root.Children.Add(tools);
@@ -24,7 +34,7 @@ public sealed partial class MainWindow
             return bar;
         }
         void ButtonFor(Panel panel, string title, RoutedEventHandler handler) {
-            var button = new Button { Content = title }; button.Click += handler; panel.Children.Add(button);
+            var button = new Button { Content = title, CornerRadius=new CornerRadius(7), Padding=new Thickness(12,8,12,8) }; if(title=="Generate outline"||title=="Transcribe"){button.Background=gold;button.Foreground=navy;} button.Click += handler; panel.Children.Add(button);
         }
         TextBox Field(Panel panel, string header, string value = "", double width = 180) {
             var field = new TextBox { Header = header, Text = value, Width = width }; panel.Children.Add(field); return field;
@@ -51,14 +61,19 @@ public sealed partial class MainWindow
         workspace.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1,GridUnitType.Star) });
         workspace.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(230) });
         Grid.SetRow(workspace,2); root.Children.Add(workspace);
+        var editorCards=new List<Border>();
         TextBox Editor(string header,int column) {
-            var editor = new TextBox { Header = header, AcceptsReturn = true, TextWrapping = TextWrapping.Wrap, VerticalAlignment = VerticalAlignment.Stretch };
-            Grid.SetColumn(editor,column); workspace.Children.Add(editor); return editor;
+            var editor = new TextBox { AcceptsReturn = true, TextWrapping = TextWrapping.Wrap, VerticalAlignment = VerticalAlignment.Stretch, FontFamily=new FontFamily("Georgia"), FontSize=17, BorderThickness=new Thickness(0), Background=new SolidColorBrush(Microsoft.UI.Colors.Transparent), Padding=new Thickness(8) };
+            var panel=new Grid{RowSpacing=12};
+            panel.RowDefinitions.Add(new RowDefinition{Height=GridLength.Auto});panel.RowDefinitions.Add(new RowDefinition{Height=new GridLength(1,GridUnitType.Star)});
+            var heading=new TextBlock{Text=header,FontFamily=new FontFamily("Georgia"),FontSize=23};headings.Add(heading);panel.Children.Add(heading);
+            Grid.SetRow(editor,1);panel.Children.Add(editor);
+            var card=Card(panel);editorCards.Add(card);Grid.SetColumn(card,column);workspace.Children.Add(card);return editor;
         }
         Transcript = Editor("Transcript",0); Outline = Editor("Sermon outline",1);
         var divider = new Border { Width=8, HorizontalAlignment=HorizontalAlignment.Right, Background=new SolidColorBrush(Microsoft.UI.Colors.SlateGray), ManipulationMode=ManipulationModes.TranslateX };
         Grid.SetColumn(divider,0); workspace.Children.Add(divider);
-        Transcript.Margin=new Thickness(0,0,12,0);
+        editorCards[0].Margin=new Thickness(0,0,12,0);
         divider.ManipulationDelta += (_,e) => {
             var total=workspace.ColumnDefinitions[0].ActualWidth+workspace.ColumnDefinitions[1].ActualWidth;
             if(total<240)return;
@@ -72,14 +87,17 @@ public sealed partial class MainWindow
         var scroll = new ScrollViewer { Content = side }; Grid.SetColumn(scroll,2); workspace.Children.Add(scroll);
         side.Children.Add(new TextBlock { Text = "Sermon library", FontSize = 20 });
         LibraryList = new ListView { DisplayMemberPath = "Title", Height = 180 }; LibraryList.SelectionChanged += Library_SelectionChanged; side.Children.Add(LibraryList);
-        OllamaModel = Field(side,"Ollama model","llama3.2:3b",210);
-        WhisperPath = Field(side,"Whisper CLI executable","",210);
-        WhisperModel = Field(side,"GGML model file","",210);
-        FfmpegPath = Field(side,"FFmpeg executable","",210);
+        var settings=new StackPanel{Spacing=12};
+        var settingsScroll=new ScrollViewer{Content=Card(settings),Visibility=Visibility.Collapsed};Grid.SetColumn(settingsScroll,2);workspace.Children.Add(settingsScroll);
+        settings.Children.Add(new TextBlock{Text="Transcription and local AI",FontSize=24,FontFamily=new FontFamily("Georgia")});
+        OllamaModel = Field(settings,"Ollama model","llama3.2:3b",210);
+        WhisperPath = Field(settings,"Whisper CLI executable","",210);
+        WhisperModel = Field(settings,"GGML model file","",210);
+        FfmpegPath = Field(settings,"FFmpeg executable","",210);
         ButtonFor(side,"Backup archive",Backup_Click); ButtonFor(side,"Restore archive",Restore_Click);
         side.Children.Add(new TextBlock { Text = "Scripture references" });
         ScriptureResults = new TextBlock { TextWrapping = TextWrapping.Wrap, IsTextSelectionEnabled = true }; side.Children.Add(ScriptureResults);
-        ConfigureTools(side);
+        ConfigureTools(settings);
         Status = new TextBlock { Text = "Ready", TextWrapping = TextWrapping.Wrap }; Grid.SetRow(Status,3); root.Children.Add(Status);
         App.Log("Attaching interface");
         root.Loaded += (_, _) => App.Log("Root Loaded");
@@ -87,16 +105,19 @@ public sealed partial class MainWindow
         firstLayout=(_,_)=>{root.LayoutUpdated-=firstLayout;App.Log("First layout completed");};
         root.LayoutUpdated += firstLayout;
         var shell = new Grid();
-        shell.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(190) });
+        shell.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(220) });
         shell.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         var sidebar = new StackPanel { Padding = new Thickness(16), Spacing = 12, Background = new SolidColorBrush(Windows.UI.Color.FromArgb(255, 25, 43, 65)) };
-        sidebar.Children.Add(new TextBlock { Text = "SERMON STUDIO", FontSize = 17, Foreground = new SolidColorBrush(Microsoft.UI.Colors.White), Margin = new Thickness(0,12,0,20) });
+        sidebar.Children.Add(new TextBlock { Text = "✝\nSermon Studio", TextAlignment=TextAlignment.Center, FontFamily=new FontFamily("Georgia"), FontSize = 26, Foreground = new SolidColorBrush(Microsoft.UI.Colors.White), Margin = new Thickness(0,12,0,20) });
         void Navigate(string name, Action action) {
-            var button = new Button { Content = name, HorizontalAlignment = HorizontalAlignment.Stretch };
-            button.Click += (_, _) => { PageTitle.Text = name; tools.Visibility=Visibility.Visible; action(); };
+            var button = new Button { Content = name, HorizontalAlignment = HorizontalAlignment.Stretch, HorizontalContentAlignment=HorizontalAlignment.Left, Background=new SolidColorBrush(Microsoft.UI.Colors.Transparent), Foreground=new SolidColorBrush(Microsoft.UI.Colors.White), BorderThickness=new Thickness(0), CornerRadius=new CornerRadius(8), Padding=new Thickness(12,12,12,12) };navButtons.Add(button);
+            button.Click += (_, _) => { foreach(var b in navButtons){b.Background=new SolidColorBrush(Microsoft.UI.Colors.Transparent);b.Foreground=new SolidColorBrush(Microsoft.UI.Colors.White);}button.Background=gold;button.Foreground=navy;PageTitle.Text = name; tools.Visibility=Visibility.Visible; action(); };
             sidebar.Children.Add(button);
         }
         void Show(bool transcript, bool outline, bool library) {
+            settingsScroll.Visibility=Visibility.Collapsed;
+            editorCards[0].Visibility=transcript?Visibility.Visible:Visibility.Collapsed;
+            editorCards[1].Visibility=outline?Visibility.Visible:Visibility.Collapsed;
             divider.Visibility=transcript && outline?Visibility.Visible:Visibility.Collapsed;
             Transcript.Visibility = transcript ? Visibility.Visible : Visibility.Collapsed;
             Outline.Visibility = outline ? Visibility.Visible : Visibility.Collapsed;
@@ -110,15 +131,29 @@ public sealed partial class MainWindow
         Navigate("Sermon outlines", () => Show(true,true,false));
         Navigate("Sermon library", () => Show(false,false,true));
         Navigate("Full workspace", () => Show(true,true,true));
-        Navigate("Settings", () => { Show(false,false,true); tools.Visibility=Visibility.Collapsed; });
+        Navigate("Settings", () => { Show(false,false,true); scroll.Visibility=Visibility.Collapsed;settingsScroll.Visibility=Visibility.Visible;tools.Visibility=Visibility.Collapsed; });
+        Navigate("Scripture references",()=>{Show(true,false,true);Scripture_Click(this,null!);});
         var theme = new ComboBox { Header="Appearance" }; theme.Items.Add("System");theme.Items.Add("Light");theme.Items.Add("Dark");theme.SelectedIndex=0;
         var settingsPath=Path.Combine(Path.GetDirectoryName(_libraryPath)!,"appearance.txt");
         try { if(File.Exists(settingsPath)&&int.TryParse(File.ReadAllText(settingsPath),out var saved)&&saved>=0&&saved<=2)theme.SelectedIndex=saved; }catch{}
-        void ApplyTheme(){shell.RequestedTheme=theme.SelectedIndex==1?ElementTheme.Light:theme.SelectedIndex==2?ElementTheme.Dark:ElementTheme.Default;}
+        void ApplyTheme(){
+            shell.RequestedTheme=theme.SelectedIndex==1?ElementTheme.Light:theme.SelectedIndex==2?ElementTheme.Dark:ElementTheme.Default;
+            Paint();
+        }
+        void Paint(){
+            bool dark=shell.ActualTheme==ElementTheme.Dark;
+            root.Background=dark?Brush(16,23,32):Brush(242,239,232);
+            foreach(var c in cards){c.Background=dark?Brush(25,34,45):Brush(255,252,245);c.BorderBrush=dark?Brush(62,76,92):Brush(213,207,194);}
+            foreach(var h in headings)h.Foreground=dark?Brush(238,220,173):navy;
+        }
+        shell.ActualThemeChanged+=(_,_)=>Paint();
         ApplyTheme();
         theme.SelectionChanged += (_,_)=>{ApplyTheme();try{Directory.CreateDirectory(Path.GetDirectoryName(settingsPath)!);File.WriteAllText(settingsPath,theme.SelectedIndex.ToString());}catch{}};
         sidebar.RequestedTheme=ElementTheme.Dark;
-        sidebar.Children.Add(theme);
+        settings.Children.Add(theme);
+        Show(true,true,false);
+        PageTitle.Text="Sermon outlines";
+        navButtons[2].Background=gold;navButtons[2].Foreground=navy;
         shell.Children.Add(sidebar); Grid.SetColumn(root,1); shell.Children.Add(root);
         Content = shell;
     }
