@@ -19,7 +19,7 @@ public sealed partial class MainWindow
             cards.Add(b);return b;
         }
         App.Log("Building interface: toolbar");
-        var root = new Grid { Padding = new Thickness(16), RowSpacing = 8 };
+        var root = new Grid { Padding = new Thickness(20), RowSpacing = 12 };
         root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         root.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
@@ -30,7 +30,7 @@ public sealed partial class MainWindow
         Grid.SetRow(tools, 1); root.Children.Add(tools);
         StackPanel Bar() {
             var bar = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6 };
-            tools.Children.Add(new ScrollViewer { Content = bar, HorizontalScrollMode = ScrollMode.Enabled, HorizontalScrollBarVisibility = ScrollBarVisibility.Auto, VerticalScrollMode = ScrollMode.Disabled });
+            tools.Children.Add(Card(new ScrollViewer { Content = bar, HorizontalScrollMode = ScrollMode.Enabled, HorizontalScrollBarVisibility = ScrollBarVisibility.Auto, VerticalScrollMode = ScrollMode.Disabled }));
             return bar;
         }
         void ButtonFor(Panel panel, string title, RoutedEventHandler handler) {
@@ -42,14 +42,17 @@ public sealed partial class MainWindow
         var top = Bar();
         SermonTitle = Field(top,"Sermon title","Untitled sermon",240);
         Generator = new ComboBox { Header = "Outline generator", Width = 180 };
-        Generator.Items.Add("Original (default)"); Generator.Items.Add("Ollama (optional)"); Generator.SelectedIndex = 0; top.Children.Add(Generator);
-        ButtonFor(top,"Generate outline",Generate_Click); ButtonFor(top,"Save sermon",Save_Click); ButtonFor(top,"New",New_Click); var exports=new DropDownButton{Content="Export"};var menu=new MenuFlyout();
+        Generator.Items.Add("Original (default)"); Generator.Items.Add("Ollama (optional)"); Generator.SelectedIndex = 0;
+        ButtonFor(top,"Save sermon",Save_Click); ButtonFor(top,"New",New_Click); var exports=new DropDownButton{Content="Export"};var menu=new MenuFlyout();
         void ExportItem(string label,RoutedEventHandler handler){var item=new MenuFlyoutItem{Text=label};item.Click+=handler;menu.Items.Add(item);}
         ExportItem("Outline • Markdown",Export_Click);ExportItem("PDF document",Pdf_Click);ExportItem("Word, RTF and transcript files",ExportMore_Click);exports.Flyout=menu;top.Children.Add(exports);
+        var generation = Bar(); generation.Children.Add(Generator); ButtonFor(generation,"Generate outline",Generate_Click);
+        var audioActions = Bar();
+        ButtonFor(audioActions,"Import audio",ImportAudio_Click); ButtonFor(audioActions,"Transcribe",Transcribe_Click); ButtonFor(audioActions,"Cancel",Cancel_Click);
         var actions = Bar();
-        ButtonFor(actions,"Import audio",ImportAudio_Click); ButtonFor(actions,"Transcribe",Transcribe_Click); ButtonFor(actions,"Cancel",Cancel_Click);
         ButtonFor(actions,"Clean",Clean_Click); ButtonFor(actions,"Original",Original_Click);
-        FindText = Field(actions,"Find","",130); ButtonFor(actions,"Find",Find_Click);
+        var search = new StackPanel{Orientation=Orientation.Horizontal,Spacing=8};
+        FindText = Field(search,"Find","",130); ButtonFor(search,"Find",Find_Click);
         Replacement = Field(actions,"Replace with","",130); ButtonFor(actions,"Replace all",Replace_Click);
         ButtonFor(actions,"Scripture",Scripture_Click); ButtonFor(actions,"Compare",Compare_Click);
         TranscriptionProgress = new ProgressBar { Height = 4 }; tools.Children.Add(TranscriptionProgress);
@@ -75,11 +78,13 @@ public sealed partial class MainWindow
         }
         Transcript = Editor("Transcript",0); Outline = Editor("Sermon outline",1);
         var transcriptPanel=(Grid)editorCards[0].Child;
+        transcriptPanel.RowDefinitions.Insert(1,new RowDefinition{Height=GridLength.Auto});
+        Grid.SetRow(search,1);transcriptPanel.Children.Add(search);Grid.SetRow(Transcript,2);
         var outlinePanel=(Grid)editorCards[1].Child;
         transcriptPanel.RowDefinitions.Add(new RowDefinition{Height=GridLength.Auto});
-        Grid.SetRow(playback,2);transcriptPanel.Children.Add(playback);
+        Grid.SetRow(playback,3);transcriptPanel.Children.Add(playback);
         var timed=new StackPanel{Spacing=8};var timedScroll=new ScrollViewer{Content=timed,Visibility=Visibility.Collapsed};
-        Grid.SetRow(timedScroll,1);transcriptPanel.Children.Add(timedScroll);
+        Grid.SetRow(timedScroll,2);transcriptPanel.Children.Add(timedScroll);
         var preview=new StackPanel{Spacing=8};var previewScroll=new ScrollViewer{Content=preview,Visibility=Visibility.Collapsed};
         Grid.SetRow(previewScroll,1);outlinePanel.Children.Add(previewScroll);
         var timedToggle=new Button{Content="Timestamp view",HorizontalAlignment=HorizontalAlignment.Right};
@@ -111,9 +116,9 @@ public sealed partial class MainWindow
             }
             previewScroll.Visibility=show?Visibility.Visible:Visibility.Collapsed;Outline.Visibility=show?Visibility.Collapsed:Visibility.Visible;previewToggle.Content=show?"Edit outline":"Formatted view";
         };
-        var divider = new Border { Width=8, HorizontalAlignment=HorizontalAlignment.Right, Background=new SolidColorBrush(Microsoft.UI.Colors.SlateGray), ManipulationMode=Microsoft.UI.Xaml.Input.ManipulationModes.TranslateX };
+        var divider = new Border { Width=5, CornerRadius=new CornerRadius(3), HorizontalAlignment=HorizontalAlignment.Right, Background=new SolidColorBrush(Microsoft.UI.Colors.SlateGray), ManipulationMode=Microsoft.UI.Xaml.Input.ManipulationModes.TranslateX };
         Grid.SetColumn(divider,0); workspace.Children.Add(divider);
-        editorCards[0].Margin=new Thickness(0,0,12,0);
+        editorCards[0].Margin=new Thickness(0,0,9,0);
         divider.ManipulationDelta += (_,e) => {
             var total=workspace.ColumnDefinitions[0].ActualWidth+workspace.ColumnDefinitions[1].ActualWidth;
             if(total<240)return;
@@ -124,9 +129,9 @@ public sealed partial class MainWindow
         Transcript.TextChanged += Editor_TextChanged; Outline.TextChanged += Outline_TextChanged; SermonTitle.TextChanged += Editor_TextChanged;
         App.Log("Building interface: library");
         var side = new StackPanel { Spacing = 8 };
-        var scroll = new ScrollViewer { Content = side }; Grid.SetColumn(scroll,2); workspace.Children.Add(scroll);
+        var scroll = new ScrollViewer { Content = Card(side) }; Grid.SetColumn(scroll,2); workspace.Children.Add(scroll);
         side.Children.Add(new TextBlock { Text = "Sermon library", FontSize = 20 });
-        LibraryList = new ListView { DisplayMemberPath = "Title", Height = 180 }; LibraryList.SelectionChanged += Library_SelectionChanged; side.Children.Add(LibraryList);
+        LibraryList = new ListView { DisplayMemberPath = "Title", MinHeight = 180, MaxHeight=500 }; LibraryList.SelectionChanged += Library_SelectionChanged; side.Children.Add(LibraryList);
         var settings=new StackPanel{Spacing=12};
         var settingsScroll=new ScrollViewer{Content=Card(settings),Visibility=Visibility.Collapsed};Grid.SetColumn(settingsScroll,2);workspace.Children.Add(settingsScroll);
         settings.Children.Add(new TextBlock{Text="Transcription and local AI",FontSize=24,FontFamily=new FontFamily("Georgia")});
@@ -134,11 +139,16 @@ public sealed partial class MainWindow
         WhisperPath = Field(settings,"Whisper CLI executable","",210);
         WhisperModel = Field(settings,"GGML model file","",210);
         FfmpegPath = Field(settings,"FFmpeg executable","",210);
-        ButtonFor(side,"Backup archive",Backup_Click); ButtonFor(side,"Restore archive",Restore_Click);
+        ButtonFor(settings,"Backup archive",Backup_Click); ButtonFor(settings,"Restore archive",Restore_Click);
         side.Children.Add(new TextBlock { Text = "Scripture references" });
         ScriptureResults = new TextBlock { TextWrapping = TextWrapping.Wrap, IsTextSelectionEnabled = true }; side.Children.Add(ScriptureResults);
         ConfigureTools(settings);
-        Status = new TextBlock { Text = "Ready", TextWrapping = TextWrapping.Wrap }; Grid.SetRow(Status,3); root.Children.Add(Status);
+        Status = new TextBlock { Text = "Ready", TextWrapping = TextWrapping.Wrap };
+        var footer=new Grid{ColumnSpacing=12};footer.ColumnDefinitions.Add(new ColumnDefinition{Width=new GridLength(1,GridUnitType.Star)});footer.ColumnDefinitions.Add(new ColumnDefinition{Width=GridLength.Auto});
+        var counts=new TextBlock{Opacity=.75};footer.Children.Add(Status);Grid.SetColumn(counts,1);footer.Children.Add(counts);
+        void CountWords(){counts.Text=$"{System.Text.RegularExpressions.Regex.Matches(Transcript.Text,@"\S+").Count:N0} transcript words  ·  {System.Text.RegularExpressions.Regex.Matches(Outline.Text,@"\S+").Count:N0} outline words";}
+        Transcript.TextChanged+=(_,_)=>CountWords();Outline.TextChanged+=(_,_)=>CountWords();CountWords();
+        Grid.SetRow(footer,3);root.Children.Add(footer);
         App.Log("Attaching interface");
         root.Loaded += (_, _) => App.Log("Root Loaded");
         EventHandler<object>? firstLayout=null;
@@ -150,13 +160,19 @@ public sealed partial class MainWindow
         var sidebar = new StackPanel { Padding = new Thickness(16), Spacing = 12, Background = new SolidColorBrush(Windows.UI.Color.FromArgb(255, 25, 43, 65)) };
         var logo=new Canvas{Width=88,Height=70,HorizontalAlignment=HorizontalAlignment.Center};
         void Stroke(double x1,double y1,double x2,double y2){logo.Children.Add(new Microsoft.UI.Xaml.Shapes.Line{X1=x1,Y1=y1,X2=x2,Y2=y2,Stroke=gold,StrokeThickness=3});}
-        Stroke(4,25,24,19);Stroke(24,19,44,28);Stroke(44,28,64,19);Stroke(64,19,84,25);Stroke(84,25,84,61);Stroke(84,61,64,55);Stroke(64,55,44,65);Stroke(44,65,24,55);Stroke(24,55,4,61);Stroke(4,61,4,25);Stroke(44,28,44,65);Stroke(44,2,44,24);Stroke(34,10,54,10);sidebar.Children.Add(logo);
+        Stroke(4,25,24,19);Stroke(24,19,44,28);Stroke(44,28,64,19);Stroke(64,19,84,25);Stroke(84,25,84,61);Stroke(84,61,64,55);Stroke(64,55,44,65);Stroke(44,65,24,55);Stroke(24,55,4,61);Stroke(4,61,4,25);Stroke(44,28,44,65);Stroke(44,2,44,24);Stroke(34,10,54,10);Stroke(13,34,20,31);Stroke(20,31,36,39);Stroke(13,44,20,41);Stroke(20,41,36,49);Stroke(52,39,68,31);Stroke(68,31,75,34);Stroke(52,49,68,41);Stroke(68,41,75,44);sidebar.Children.Add(logo);
         sidebar.Children.Add(new TextBlock { Text = "Sermon Studio", TextAlignment=TextAlignment.Center, FontFamily=new FontFamily("Georgia"), FontSize = 26, Foreground = new SolidColorBrush(Microsoft.UI.Colors.White), Margin = new Thickness(0,12,0,20) });
         void Navigate(string name, Action action) {
             var navContent=new StackPanel{Orientation=Orientation.Horizontal,Spacing=10};navContent.Children.Add(new FontIcon{Glyph=name switch {"New sermon"=>"\uE710","Transcript editor"=>"\uE70F","Sermon outlines"=>"\uE8A5","Sermon library"=>"\uE8B7","Settings"=>"\uE713","Scripture references"=>"\uE82D","Transcribe audio"=>"\uE720",_=>"\uE8A9"},FontFamily=new FontFamily("Segoe MDL2 Assets"),FontSize=18});navContent.Children.Add(new TextBlock{Text=name});
             var button = new Button { Content = navContent, HorizontalAlignment = HorizontalAlignment.Stretch, HorizontalContentAlignment=HorizontalAlignment.Left, Background=new SolidColorBrush(Microsoft.UI.Colors.Transparent), Foreground=new SolidColorBrush(Microsoft.UI.Colors.White), BorderThickness=new Thickness(0), CornerRadius=new CornerRadius(8), Padding=new Thickness(12,12,12,12) };navButtons.Add(button);
-            button.Click += (_, _) => { foreach(var b in navButtons){b.Background=new SolidColorBrush(Microsoft.UI.Colors.Transparent);b.Foreground=new SolidColorBrush(Microsoft.UI.Colors.White);}button.Background=gold;button.Foreground=navy;PageTitle.Text = name; tools.Visibility=Visibility.Visible; action(); actions.Visibility=name=="Sermon library"?Visibility.Collapsed:Visibility.Visible; };
+            button.Click += (_, _) => { foreach(var b in navButtons){b.Background=new SolidColorBrush(Microsoft.UI.Colors.Transparent);b.Foreground=new SolidColorBrush(Microsoft.UI.Colors.White);}button.Background=gold;button.Foreground=navy;PageTitle.Text = name; tools.Visibility=Visibility.Visible; action(); SetToolbar(name); };
             sidebar.Children.Add(button);
+        }
+        void SetToolbar(string page){
+            ((FrameworkElement)tools.Children[0]).Visibility=page=="Settings"||page=="Sermon library"?Visibility.Collapsed:Visibility.Visible;
+            ((FrameworkElement)tools.Children[1]).Visibility=page=="Sermon outlines"||page=="Full workspace"||page=="New sermon"?Visibility.Visible:Visibility.Collapsed;
+            ((FrameworkElement)tools.Children[2]).Visibility=page=="Transcribe audio"||page=="Full workspace"||page=="New sermon"?Visibility.Visible:Visibility.Collapsed;
+            ((FrameworkElement)tools.Children[3]).Visibility=page=="Transcript editor"||page=="Full workspace"?Visibility.Visible:Visibility.Collapsed;
         }
         void Show(bool transcript, bool outline, bool library) {
             settingsScroll.Visibility=Visibility.Collapsed;
@@ -171,14 +187,14 @@ public sealed partial class MainWindow
             workspace.ColumnDefinitions[1].Width = outline ? new GridLength(1, GridUnitType.Star) : new GridLength(0);
             workspace.ColumnDefinitions[2].Width = library ? new GridLength(transcript || outline ? 230 : 1, transcript || outline ? GridUnitType.Pixel : GridUnitType.Star) : new GridLength(0);
         }
-        Navigate("New sermon", () => { New_Click(this, null!); Show(true,true,true); });
-        Navigate("Transcript editor", () => Show(true,false,true));
-        Navigate("Sermon outlines", () => Show(true,true,false));
         Navigate("Sermon library", () => Show(false,false,true));
-        Navigate("Full workspace", () => Show(true,true,true));
-        Navigate("Settings", () => { Show(false,false,true); scroll.Visibility=Visibility.Collapsed;settingsScroll.Visibility=Visibility.Visible;tools.Visibility=Visibility.Collapsed; });
         Navigate("Transcribe audio",()=>Show(true,false,false));
+        Navigate("Transcript editor", () => Show(true,false,false));
+        Navigate("Sermon outlines", () => Show(true,true,false));
         Navigate("Scripture references",()=>{Show(true,false,true);Scripture_Click(this,null!);});
+        Navigate("Full workspace", () => Show(true,true,true));
+        Navigate("New sermon", () => { New_Click(this, null!); Show(true,true,true); });
+        Navigate("Settings", () => { Show(false,false,true); scroll.Visibility=Visibility.Collapsed;settingsScroll.Visibility=Visibility.Visible;tools.Visibility=Visibility.Collapsed; });
         var theme = new ComboBox { Header="Appearance" }; theme.Items.Add("System");theme.Items.Add("Light");theme.Items.Add("Dark");theme.SelectedIndex=0;
         var settingsPath=Path.Combine(Path.GetDirectoryName(_libraryPath)!,"appearance.txt");
         try { if(File.Exists(settingsPath)&&int.TryParse(File.ReadAllText(settingsPath),out var saved)&&saved>=0&&saved<=2)theme.SelectedIndex=saved; }catch{}
@@ -199,8 +215,9 @@ public sealed partial class MainWindow
         settings.Children.Add(theme);
         Show(true,true,false);
         PageTitle.Text="Sermon outlines";
-        navButtons[2].Background=gold;navButtons[2].Foreground=navy;
-        shell.Children.Add(sidebar); Grid.SetColumn(root,1); shell.Children.Add(root);
+        navButtons[3].Background=gold;navButtons[3].Foreground=navy;
+        SetToolbar("Sermon outlines");
+        shell.Children.Add(new ScrollViewer{Content=sidebar,Background=navy,VerticalScrollBarVisibility=ScrollBarVisibility.Auto}); Grid.SetColumn(root,1); shell.Children.Add(root);
         Content = shell;
     }
     private void OnFirstLayout(object? sender, object e)
