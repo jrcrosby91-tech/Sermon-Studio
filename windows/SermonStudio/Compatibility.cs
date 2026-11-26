@@ -38,21 +38,30 @@ public sealed partial class MainWindow
             await File.WriteAllTextAsync(path,JsonSerializer.Serialize(records,ArchiveOptions));Status.Text="Mac-compatible archive: "+path;
         }catch(Exception ex){Status.Text=ex.Message;}
     }
-    private async void Pdf_Click(object sender,RoutedEventArgs e)
+    private void Pdf_Click(object sender,RoutedEventArgs e)
     {
-        try{
+        try {
             var folder=Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments),"Sermon Studio");Directory.CreateDirectory(folder);
-            var path=Path.Combine(folder,"print-"+DateTime.Now.ToString("yyyyMMdd-HHmmss")+".html");
-            var title=WebUtility.HtmlEncode(SermonTitle.Text);
-            var body=WebUtility.HtmlEncode(Transcript.Text);
-            var outline=WebUtility.HtmlEncode(Outline.Text);
-            await File.WriteAllTextAsync(path,"<!doctype html><meta charset='utf-8'><title>"+title+"</title><style>@page{margin:20mm}body{font:12pt Georgia;line-height:1.5}article{white-space:pre-wrap;overflow-wrap:anywhere}h1{font-size:22pt}section{break-before:page}</style><h1>"+title+"</h1><article>"+body+"</article>"+(outline.Length>0?"<section><h1>Sermon outline</h1><article>"+outline+"</article></section>":""));
-            await Windows.System.Launcher.LaunchFileAsync(await Windows.Storage.StorageFile.GetFileFromPathAsync(path));
-            Status.Text="Print-ready document opened. Press Ctrl+P and choose Save as PDF.";
-        }catch(Exception ex){Status.Text="Print export failed: "+ex.Message;}
+            var path=Path.Combine(folder,"Sermon-"+DateTime.Now.ToString("yyyyMMdd-HHmmss")+".pdf");
+            var doc=new MigraDoc.DocumentObjectModel.Document();
+            doc.Info.Title=SermonTitle.Text;
+            doc.Styles["Normal"].Font.Name="Arial";
+            doc.Styles["Normal"].Font.Size=11;
+            var section=doc.AddSection();
+            section.AddParagraph(SermonTitle.Text,"Heading1");
+            foreach(var line in Transcript.Text.Replace("\r","").Split('\n')) section.AddParagraph(line);
+            if(!string.IsNullOrWhiteSpace(Outline.Text)){
+                section=doc.AddSection();section.AddParagraph("Sermon outline","Heading1");
+                foreach(var line in Outline.Text.Replace("\r","").Split('\n'))section.AddParagraph(line);
+            }
+            var renderer=new MigraDoc.Rendering.PdfDocumentRenderer{Document=doc};
+            renderer.RenderDocument();renderer.PdfDocument.Save(path);
+            Status.Text="PDF saved: "+path;
+        }catch(Exception ex){Status.Text="PDF export failed: "+ex.Message;}
     }
     private async Task InstallReleaseAsync(JsonElement release)
     {
+        if(_transcription!=null || _modelDownload!=null)throw new InvalidOperationException("Finish active transcription or download before updating.");
         var tag=release.GetProperty("tag_name").GetString()??"";
         if(!Regex.IsMatch(tag,@"^windows-test-\d+-\d+$"))throw new InvalidDataException("Unexpected release tag.");
         var asset=release.GetProperty("assets").EnumerateArray().First(a=>a.GetProperty("name").GetString()=="Sermon-Studio-Windows-x64-portable.zip");
@@ -72,9 +81,14 @@ public sealed partial class MainWindow
             if(!File.Exists(Path.Combine(staging,"SermonStudio.exe"))||(!File.Exists(Path.Combine(staging,"SermonStudio.pri"))&&!File.Exists(Path.Combine(staging,"resources.pri"))))throw new InvalidDataException("Incomplete application package.");
             if(Directory.Exists(target))throw new IOException("This version is already installed.");
             Directory.Move(staging,target);
-            if(_selectedId!=null)Save();
-            Status.Text="Update installed alongside existing version: "+target;
-            await Windows.System.Launcher.LaunchFolderAsync(await Windows.Storage.StorageFolder.GetFolderFromPathAsync(target));
+            if(_transcription!=null || _modelDownload!=null)throw new InvalidOperationException("Update installed; finish active work before launching it.");
+            if(_selectedId!=null || !string.IsNullOrWhiteSpace(Transcript.Text) || !string.IsNullOrWhiteSpace(Outline.Text)){
+                Save();
+                if(Status.Text.StartsWith("Save failed"))throw new IOException("Update installed but sermon could not be saved. Restart manually.");
+            }
+            var next=Process.Start(new ProcessStartInfo(Path.Combine(target,"SermonStudio.exe")){WorkingDirectory=target,UseShellExecute=true});
+            if(next==null)throw new IOException("Unable to launch updated version.");
+            Application.Current.Exit();
         }finally{try{File.Delete(zip);if(Directory.Exists(staging))Directory.Delete(staging,true);}catch{}}
     }
 }
