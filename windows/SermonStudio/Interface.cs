@@ -166,19 +166,80 @@ public sealed partial class MainWindow
             if(next!=activeRow){if(activeRow!=null){activeRow.Background=null;activeRow.BorderBrush=null;}activeRow=next;if(next!=null){next.Background=new SolidColorBrush(Windows.UI.Color.FromArgb(45,190,151,69));next.BorderBrush=gold;if(follow.IsChecked==true)next.StartBringIntoView();}}
         }catch{updatingSeek=false;}};audioTimer.Start();Closed+=(_,_)=>{audioTimer.Stop();waveCancel?.Cancel();};
         var previewToggle=new Button{Content="Formatted view",HorizontalAlignment=HorizontalAlignment.Right};outlinePanel.Children.Add(previewToggle);
-        previewToggle.Click+=(_,_)=>{
-            bool show=previewScroll.Visibility!=Visibility.Visible;preview.Children.Clear();
-            if(show)foreach(var raw in Outline.Text.Split('\n')){
+        outlinePanel.RowDefinitions.Insert(1,new RowDefinition{Height=GridLength.Auto});
+        Grid.SetRow(Outline,2);Grid.SetRow(previewScroll,2);
+        var formatBar=new StackPanel{Orientation=Orientation.Horizontal,Spacing=6};
+        var formatScroll=new ScrollViewer{Content=formatBar,HorizontalScrollMode=ScrollMode.Enabled,HorizontalScrollBarVisibility=ScrollBarVisibility.Auto,VerticalScrollMode=ScrollMode.Disabled};
+        Grid.SetRow(formatScroll,1);outlinePanel.Children.Add(formatScroll);
+        void OutlineEdit(){previewScroll.Visibility=Visibility.Collapsed;Outline.Visibility=Visibility.Visible;previewToggle.Content="Formatted view";Outline.Focus(FocusState.Programmatic);}
+        void WrapSelection(string prefix,string suffix,string sample){
+            OutlineEdit();int start=Outline.SelectionStart;var selected=Outline.SelectedText;if(string.IsNullOrEmpty(selected))selected=sample;
+            Outline.SelectedText=prefix+selected+suffix;Outline.Select(start+prefix.Length,selected.Length);
+        }
+        void FormatLines(string prefix,bool numbered=false){
+            OutlineEdit();var body=Outline.Text;int start=Outline.SelectionStart,end=start+Outline.SelectionLength;
+            int first=start==0?0:body.LastIndexOf('\n',start-1)+1;
+            int last=body.IndexOf('\n',end);if(last<0)last=body.Length;
+            var lines=body.Substring(first,last-first).Split('\n');
+            var formatted=string.Join("\n",lines.Select((line,i)=>(numbered?(i+1)+". ":prefix)+System.Text.RegularExpressions.Regex.Replace(line,@"^\s*(?:#{1,6}\s+|[-*]\s+|\d+\.\s+|>\s+)","")));
+            Outline.Select(first,last-first);Outline.SelectedText=formatted;Outline.Select(first,formatted.Length);
+        }
+        ButtonFor(formatBar,"Heading",(_,_)=>FormatLines("## "));
+        ButtonFor(formatBar,"Subheading",(_,_)=>FormatLines("### "));
+        ButtonFor(formatBar,"Bold",(_,_)=>WrapSelection("**","**","Bold text"));
+        ButtonFor(formatBar,"Italic",(_,_)=>WrapSelection("*","*","Emphasis"));
+        ButtonFor(formatBar,"Bullets",(_,_)=>FormatLines("- "));
+        ButtonFor(formatBar,"Numbered",(_,_)=>FormatLines("",true));
+        ButtonFor(formatBar,"Scripture",(_,_)=>FormatLines("> "));
+        ButtonFor(formatBar,"Undo",(_,_)=>{OutlineEdit();if(Outline.CanUndo)Outline.Undo();});
+        ButtonFor(formatBar,"Redo",(_,_)=>{OutlineEdit();if(Outline.CanRedo)Outline.Redo();});
+        void LocateSource(string passage){
+            var query=System.Text.RegularExpressions.Regex.Replace(passage,@"^[#>*\s\d.]+","").Replace("**","").Trim();
+            if(query.Length==0)return;
+            var index=Transcript.Text.IndexOf(query,StringComparison.OrdinalIgnoreCase);
+            if(index<0){Status.Text="No exact source passage found. Try selecting a shorter excerpt.";return;}
+            if(editorCards[0].Visibility!=Visibility.Visible){Status.Text="Open Sermon outlines or Full workspace to view the source.";return;}
+            timedScroll.Visibility=Visibility.Collapsed;Transcript.Visibility=Visibility.Visible;timedToggle.Content="Timestamp view";
+            Transcript.Focus(FocusState.Programmatic);Transcript.Select(index,query.Length);Status.Text="Source passage located.";
+        }
+        ButtonFor(formatBar,"Find source",(_,_)=>LocateSource(Outline.SelectedText));
+        bool writingMode=false;
+        ButtonFor(formatBar,"Focus mode",(_,_)=>{
+            writingMode=!writingMode;
+            editorCards[0].Visibility=writingMode?Visibility.Collapsed:Visibility.Visible;
+            SetWritingDivider(!writingMode);
+            workspace.ColumnDefinitions[0].Width=writingMode?new GridLength(0):new GridLength(split,GridUnitType.Star);
+            workspace.ColumnDefinitions[1].Width=new GridLength(writingMode?1:1-split,GridUnitType.Star);
+        });
+        void RenderOutline(){
+            preview.Children.Clear();
+            foreach(var raw in Outline.Text.Split('\n')){
                 var line=raw.Trim();if(line.Length==0)continue;
-                bool heading=line.StartsWith("#")||System.Text.RegularExpressions.Regex.IsMatch(line,@"^[IVXLCDM]+\.\s");
-                var text=new TextBlock{Text=line.TrimStart('#',' ').Replace("**",""),TextWrapping=TextWrapping.Wrap,FontFamily=new FontFamily("Georgia"),FontSize=heading?22:17};
-                if(heading){text.Foreground=gold;text.FontWeight=Microsoft.UI.Text.FontWeights.SemiBold;}
-                if(line.StartsWith("- ")||line.StartsWith("* ")) {text.Text="• "+line.Substring(2);text.Margin=new Thickness(18,0,0,0);}
+                bool heading=line.StartsWith("#")||System.Text.RegularExpressions.Regex.IsMatch(line,@"^[IVXLCDM]+\.\s")||(line.Length<65&&line.Any(char.IsLetter)&&line==line.ToUpperInvariant());
+                bool scripture=line.StartsWith(">");bool bullet=line.StartsWith("- ")||line.StartsWith("* ");
+                var content=line.TrimStart('#','>',' ');if(bullet)content="• "+line.Substring(2);
+                var text=new TextBlock{TextWrapping=TextWrapping.Wrap,FontFamily=new FontFamily("Georgia"),FontSize=heading?(line.StartsWith("###")?19:23):17,IsTextSelectionEnabled=true};
+                if(heading||scripture){text.Foreground=gold;if(heading)text.FontWeight=Microsoft.UI.Text.FontWeights.SemiBold;}
+                if(bullet||scripture)text.Margin=new Thickness(18,0,0,0);
+                foreach(var part in System.Text.RegularExpressions.Regex.Split(content,@"(\*\*[^*]+\*\*|\*[^*]+\*)")){
+                    if(part.Length==0)continue;
+                    var run=new Microsoft.UI.Xaml.Documents.Run{Text=part.Trim('*')};
+                    if(part.StartsWith("**")&&part.EndsWith("**"))run.FontWeight=Microsoft.UI.Text.FontWeights.Bold;
+                    else if(part.StartsWith("*")&&part.EndsWith("*"))run.FontStyle=Windows.UI.Text.FontStyle.Italic;
+                    text.Inlines.Add(run);
+                }
+                if(scripture)text.FontStyle=Windows.UI.Text.FontStyle.Italic;
                 preview.Children.Add(text);
             }
-            previewScroll.Visibility=show?Visibility.Visible:Visibility.Collapsed;Outline.Visibility=show?Visibility.Collapsed:Visibility.Visible;previewToggle.Content=show?"Edit outline":"Formatted view";
+            if(preview.Children.Count==0)preview.Children.Add(new TextBlock{Text="Write or generate an outline to preview its formatting.",TextWrapping=TextWrapping.Wrap});
+        }
+        previewToggle.Click+=(_,_)=>{
+            if(previewScroll.Visibility==Visibility.Visible){OutlineEdit();return;}
+            RenderOutline();previewScroll.Visibility=Visibility.Visible;Outline.Visibility=Visibility.Collapsed;previewToggle.Content="Edit outline";
         };
+        Outline.TextChanged+=(_,_)=>{if(previewScroll.Visibility==Visibility.Visible)RenderOutline();};
         var divider = new Border { Width=5, CornerRadius=new CornerRadius(3), HorizontalAlignment=HorizontalAlignment.Right, Background=new SolidColorBrush(Microsoft.UI.Colors.SlateGray), ManipulationMode=Microsoft.UI.Xaml.Input.ManipulationModes.TranslateX };
+        void SetWritingDivider(bool visible){divider.Visibility=visible?Visibility.Visible:Visibility.Collapsed;}
         Grid.SetColumn(divider,0); workspace.Children.Add(divider);
         editorCards[0].Margin=new Thickness(0,0,9,0);
         divider.ManipulationDelta += (_,e) => {
@@ -295,6 +356,7 @@ public sealed partial class MainWindow
             ((FrameworkElement)tools.Children[3]).Visibility=page=="Transcript editor"||page=="Full workspace"?Visibility.Visible:Visibility.Collapsed;
         }
         void Show(bool transcript, bool outline, bool library) {
+            writingMode=false;
             settingsScroll.Visibility=Visibility.Collapsed;
             editorCards[0].Visibility=transcript?Visibility.Visible:Visibility.Collapsed;
             editorCards[1].Visibility=outline?Visibility.Visible:Visibility.Collapsed;
