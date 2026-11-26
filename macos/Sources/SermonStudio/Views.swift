@@ -164,51 +164,71 @@ struct NewSermonView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
-                Card(title: "1. Recording") {
-                    VStack(spacing: 10) {
-                        Image(systemName: "waveform.badge.plus").font(.system(size: 34)).foregroundStyle(Theme.gold)
-                        Text(audio.url == nil ? "Drop a sermon recording here or choose one." : "Recording ready.").font(.headline)
-                        HStack {
-                            Button("Choose Recording…") { model.chooseAudio() }
-                            Button("Write Without a Recording") { model.page = .transcript }
-                        }
-                    }
-                    .frame(maxWidth: .infinity).padding(18)
-                    .background(RoundedRectangle(cornerRadius: 10).strokeBorder(style: StrokeStyle(lineWidth: 1.5, dash: [6])).foregroundStyle(dropTargeted ? Theme.gold : Color.secondary.opacity(0.4)))
-                    .onDrop(of: [.fileURL], isTargeted: $dropTargeted) { providers in
-                        _ = providers.first?.loadObject(ofClass: URL.self) { url, _ in if let url { DispatchQueue.main.async { model.importAudio(url) } } }
-                        return true
-                    }
-                    if audio.url != nil { PlayerBar(audio: audio, accent: Theme.gold) }
-                }
-                Card(title: "2. Offline transcription") {
-                    Picker("Quality", selection: $model.defaultModel) {
-                        ForEach(ModelCatalog.all) { info in
-                            Text(info.name + " — " + info.detail + (transcriber.state(info.id).isInstalled ? "  ✓ installed" : "  (" + info.approximateSize + " download)")).tag(info.id)
-                        }
-                    }
-                    .disabled(transcriber.isTranscribing)
-                    DisclosureGroup("Biblical vocabulary assistance") {
-                        Toggle("Guide spelling of biblical names and terms", isOn: $model.biblicalAssistance)
-                        TextField("Names and vocabulary", text: $model.vocabulary, axis: .vertical).lineLimit(2...5).textFieldStyle(.roundedBorder)
-                        Text("These words are given to Whisper as a prompt. Keep the list short and specific to this sermon for best results.").font(.caption).foregroundStyle(.secondary)
-                    }
-                    HStack {
-                        Button(transcriber.isTranscribing ? "Transcribing…" : "Transcribe on This Mac") { model.transcribe() }
-                            .buttonStyle(ProminentStyle())
-                            .disabled(audio.url == nil || transcriber.isTranscribing)
-                        if transcriber.isTranscribing {
-                            ProgressView(value: transcriber.progress).frame(maxWidth: 260)
-                            Button("Cancel") { model.cancelTranscription() }
-                        }
-                    }
-                    Text("Audio never leaves your Mac. The first use of a model downloads it once; transcription then works offline using the Neural Engine.")
-                        .font(.caption).foregroundStyle(.secondary)
-                }
+                Card(title: "1. Recording") { recording }
+                Card(title: "2. Offline transcription") { transcription }
                 Card(title: "3. Sermon details") { MetadataEditor(model: model) }
             }
             .padding(20)
         }
+    }
+
+    private var dropZone: some View {
+        VStack(spacing: 10) {
+            Image(systemName: "waveform.badge.plus").font(.system(size: 34)).foregroundStyle(Theme.gold)
+            Text(audio.url == nil ? "Drop a sermon recording here or choose one." : "Recording ready.").font(.headline)
+            HStack {
+                Button("Choose Recording…") { model.chooseAudio() }
+                Button("Write Without a Recording") { model.page = .transcript }
+            }
+        }
+        .frame(maxWidth: .infinity)
+        .padding(18)
+    }
+
+    private var dropBorder: some View {
+        let color: Color = dropTargeted ? Theme.gold : Color.secondary.opacity(0.4)
+        return RoundedRectangle(cornerRadius: 10).strokeBorder(color, style: StrokeStyle(lineWidth: 1.5, dash: [6]))
+    }
+
+    @ViewBuilder private var recording: some View {
+        dropZone
+            .background(dropBorder)
+            .onDrop(of: [.fileURL], isTargeted: $dropTargeted) { providers in
+                _ = providers.first?.loadObject(ofClass: URL.self) { url, _ in
+                    if let url { DispatchQueue.main.async { model.importAudio(url) } }
+                }
+                return true
+            }
+        if audio.url != nil { PlayerBar(audio: audio, accent: Theme.gold) }
+    }
+
+    private func modelLabel(_ info: WhisperModelInfo) -> String {
+        let installed = transcriber.state(info.id).isInstalled
+        let suffix: String = installed ? "  ✓ installed" : "  (" + info.approximateSize + " download)"
+        return info.name + " — " + info.detail + suffix
+    }
+
+    @ViewBuilder private var transcription: some View {
+        Picker("Quality", selection: $model.defaultModel) {
+            ForEach(ModelCatalog.all) { info in Text(modelLabel(info)).tag(info.id) }
+        }
+        .disabled(transcriber.isTranscribing)
+        DisclosureGroup("Biblical vocabulary assistance") {
+            Toggle("Guide spelling of biblical names and terms", isOn: $model.biblicalAssistance)
+            TextField("Names and vocabulary", text: $model.vocabulary, axis: .vertical).lineLimit(2...5).textFieldStyle(.roundedBorder)
+            Text("These words are given to Whisper as a prompt. Keep the list short and specific to this sermon for best results.").font(.caption).foregroundStyle(.secondary)
+        }
+        HStack {
+            Button(transcriber.isTranscribing ? "Transcribing…" : "Transcribe on This Mac") { model.transcribe() }
+                .buttonStyle(ProminentStyle())
+                .disabled(audio.url == nil || transcriber.isTranscribing)
+            if transcriber.isTranscribing {
+                ProgressView(value: transcriber.progress).frame(maxWidth: 260)
+                Button("Cancel") { model.cancelTranscription() }
+            }
+        }
+        Text("Audio never leaves your Mac. The first use of a model downloads it once; transcription then works offline using the Neural Engine.")
+            .font(.caption).foregroundStyle(.secondary)
     }
 }
 
