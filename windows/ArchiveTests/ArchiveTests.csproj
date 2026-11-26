@@ -1,1 +1,15 @@
-<Project Sdk="Microsoft.NET.Sdk"><PropertyGroup><OutputType>Exe</OutputType><TargetFramework>net10.0</TargetFramework><ImplicitUsings>enable</ImplicitUsings><Nullable>enable</Nullable></PropertyGroup><ItemGroup><Compile Include="../SermonStudio/ArchiveRules.cs" Link="ArchiveRules.cs"/></ItemGroup></Project>
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Platform-independent regression tests. They compile the application's own portable source files
+       (no copies), so every check exercises production logic. Exit code is nonzero on any failure. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="../SermonStudio/ArchiveRules.cs" Link="Production/ArchiveRules.cs" />
+    <Compile Include="../SermonStudio/Core/*.cs" Link="Production/Core/%(Filename)%(Extension)" />
+  </ItemGroup>
+</Project>
