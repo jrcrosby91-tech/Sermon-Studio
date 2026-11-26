@@ -57,6 +57,8 @@ public sealed partial class MainWindow : Window
         _loading = true;
         _selectedId = item.Id;
         SermonTitle.Text = item.Title;
+        _showCleaned = false; _originalText = item.Original; _cleanedText = item.Cleaned;
+        _srt = item.Srt; _vtt = item.Vtt;
         Transcript.Text = item.Original;
         Outline.Text = item.Outline;
         _loading = false;
@@ -70,6 +72,7 @@ public sealed partial class MainWindow : Window
         _selectedId = null;
         LibraryList.SelectedItem = null;
         SermonTitle.Text = "Untitled sermon";
+        _showCleaned = false; _originalText = ""; _cleanedText = ""; _srt = ""; _vtt = "";
         Transcript.Text = "";
         Outline.Text = "";
         _loading = false;
@@ -144,7 +147,9 @@ public sealed partial class MainWindow : Window
                 _selectedId = item.Id;
             }
             item.Title = SermonTitle.Text;
-            item.Original = Transcript.Text;
+            item.Original = _showCleaned ? _originalText : Transcript.Text;
+            item.Cleaned = _showCleaned ? Transcript.Text : _cleanedText;
+            item.Srt = _srt; item.Vtt = _vtt;
             item.Outline = Outline.Text;
             if (string.IsNullOrWhiteSpace(item.Date)) item.Date = DateTime.Today.ToString("yyyy-MM-dd");
             Directory.CreateDirectory(Path.GetDirectoryName(_libraryPath)!);
@@ -181,4 +186,6 @@ public sealed class SermonRecord
     public string Original { get; set; } = "";
     public string Cleaned { get; set; } = "";
     public string Outline { get; set; } = "";
+    public string Srt { get; set; } = "";
+    public string Vtt { get; set; } = "";
 }
