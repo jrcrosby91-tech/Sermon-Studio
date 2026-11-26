@@ -1,0 +1,52 @@
+<Window
+    x:Class="SermonStudio.MainWindow"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    Title="Sermon Studio">
+    <NavigationView x:Name="Navigation" PaneDisplayMode="Left" IsBackButtonVisible="Collapsed"
+                    SelectionChanged="Navigation_SelectionChanged">
+        <NavigationView.MenuItems>
+            <NavigationViewItem Content="Dashboard" Tag="dashboard" Icon="Home"/>
+            <NavigationViewItem Content="Transcript Editor" Tag="transcript" Icon="Document"/>
+            <NavigationViewItem Content="Sermon Outlines" Tag="outlines" Icon="Edit"/>
+            <NavigationViewItem Content="Sermon Library" Tag="library" Icon="Library"/>
+        </NavigationView.MenuItems>
+        <Grid Padding="20" RowSpacing="12">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="*"/>
+                <RowDefinition Height="Auto"/>
+            </Grid.RowDefinitions>
+            <TextBlock x:Name="PageTitle" Text="Sermon Studio" FontFamily="Georgia" FontSize="32" FontWeight="SemiBold"/>
+            <StackPanel Grid.Row="1" Orientation="Horizontal" Spacing="10">
+                <TextBox x:Name="SermonTitle" Header="Sermon title" Width="280" Text="Untitled sermon"/>
+                <ComboBox x:Name="Generator" Header="Outline generator" Width="190" SelectedIndex="0">
+                    <ComboBoxItem Content="Original (default)"/>
+                    <ComboBoxItem Content="Ollama (optional)"/>
+                </ComboBox>
+                <Button Content="Generate outline" Click="Generate_Click" VerticalAlignment="Bottom"/>
+                <Button Content="Save sermon" Click="Save_Click" VerticalAlignment="Bottom"/>
+            </StackPanel>
+            <Grid Grid.Row="2" ColumnSpacing="10">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="8"/>
+                    <ColumnDefinition Width="*"/>
+                </Grid.ColumnDefinitions>
+                <StackPanel Grid.Column="0" Spacing="8">
+                    <TextBlock Text="Transcript" FontSize="20" FontWeight="SemiBold"/>
+                    <TextBox x:Name="Transcript" AcceptsReturn="True" TextWrapping="Wrap" VerticalAlignment="Stretch"
+                             VerticalContentAlignment="Top" MinHeight="400"/>
+                </StackPanel>
+                <GridSplitter Grid.Column="1" Width="8" ResizeDirection="Columns" HorizontalAlignment="Stretch"/>
+                <StackPanel Grid.Column="2" Spacing="8">
+                    <TextBlock Text="Sermon outline" FontSize="20" FontWeight="SemiBold"/>
+                    <TextBox x:Name="Outline" AcceptsReturn="True" TextWrapping="Wrap" VerticalAlignment="Stretch"
+                             VerticalContentAlignment="Top" MinHeight="400" TextChanged="Outline_TextChanged"/>
+                </StackPanel>
+            </Grid>
+            <TextBlock x:Name="Status" Grid.Row="3" Text="Ready. Original outlines work offline." Opacity=".7"/>
+        </Grid>
+    </NavigationView>
+</Window>
