@@ -57,7 +57,7 @@ public sealed partial class MainWindow
         try {
             // whisper.cpp accepts WAV input reliably. Other formats require local FFmpeg conversion.
             var input = audio;
-            if (!audio.EndsWith(".wav", StringComparison.OrdinalIgnoreCase)) {
+            if (File.Exists(FfmpegPath.Text.Trim()) || !audio.EndsWith(".wav", StringComparison.OrdinalIgnoreCase)) {
                 if (!File.Exists(FfmpegPath.Text.Trim())) throw new InvalidOperationException("Set the FFmpeg executable path for non-WAV recordings.");
                 input = output + ".wav";
                 await RunLocal(FfmpegPath.Text.Trim(), new[]{"-y","-i",audio,"-ar","16000","-ac","1","-c:a","pcm_s16le",input}, _transcription.Token);
@@ -175,7 +175,7 @@ public sealed partial class MainWindow
     {
         try {
             var path=await PickFile(".json"); if(path==null)return;
-            var raw=JsonSerializer.Deserialize<List<SermonRecord?>>(await File.ReadAllTextAsync(path)) ?? throw new InvalidDataException("Invalid archive.");
+            var raw=JsonSerializer.Deserialize<List<SermonRecord?>>(await File.ReadAllTextAsync(path),ArchiveOptions) ?? throw new InvalidDataException("Invalid archive.");
             if(raw.Any(x=>x==null||string.IsNullOrWhiteSpace(x.Id))) throw new InvalidDataException("Invalid sermon record.");
             var records=NormalizeRecords(raw);
             foreach(var item in records) if(!_library.Any(x=>x.Id==item.Id)) _library.Add(item);
