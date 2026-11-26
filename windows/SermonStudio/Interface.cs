@@ -47,6 +47,8 @@ public sealed partial class MainWindow
         SermonTitle = Field(top,"Sermon title","Untitled sermon",240);
         _sermonDate=new CalendarDatePicker{Header="Sermon date",Date=DateTimeOffset.Now,Width=155};top.Children.Add(_sermonDate);
         _speaker=Field(top,"Speaker","",150);_primaryScripture=Field(top,"Primary scripture","",170);
+        _sermonTags=Field(top,"Tags","",160);_sermonTags.TextChanged+=Editor_TextChanged;
+        _sermonFavorite=new CheckBox{Content="Favorite",VerticalAlignment=VerticalAlignment.Bottom};top.Children.Add(_sermonFavorite);_sermonFavorite.Checked+=(_,_)=>Editor_TextChanged(_sermonFavorite,null!);_sermonFavorite.Unchecked+=(_,_)=>Editor_TextChanged(_sermonFavorite,null!);
         _speaker.TextChanged+=Editor_TextChanged;_primaryScripture.TextChanged+=Editor_TextChanged;_sermonDate.DateChanged+=(_,_)=>Editor_TextChanged(_sermonDate,null!);
         Generator = new ComboBox { Header = "Outline generator", Width = 180 };
         Generator.Items.Add("Original (default)"); Generator.Items.Add("Ollama (optional)"); Generator.SelectedIndex = 0;
@@ -334,7 +336,16 @@ public sealed partial class MainWindow
         var scroll = new ScrollViewer { Content = Card(side) }; Grid.SetColumn(scroll,2); workspace.Children.Add(scroll);
         side.Children.Add(new TextBlock { Text = "Sermon library", FontSize = 20 });
         var libraryHint=new TextBlock{Text="Select a saved sermon to open it. New sermons appear here after you save.",TextWrapping=TextWrapping.Wrap,Opacity=.75};side.Children.Add(libraryHint);
-        LibraryList = new ListView { DisplayMemberPath = "Title", MinHeight = 180, MaxHeight=500 }; LibraryList.SelectionChanged += Library_SelectionChanged; side.Children.Add(LibraryList);
+        _librarySearch=new TextBox{PlaceholderText="Search sermons, scripture, tags…"};side.Children.Add(_librarySearch);
+        _librarySort=new ComboBox{Header="Sort by",HorizontalAlignment=HorizontalAlignment.Stretch};foreach(var label in new[]{"Newest sermon","Oldest sermon","Title A–Z","Recently edited"})_librarySort.Items.Add(label);_librarySort.SelectedIndex=0;side.Children.Add(_librarySort);
+        _libraryFavorites=new CheckBox{Content="Favorites only"};side.Children.Add(_libraryFavorites);
+        _libraryCount=new TextBlock{Opacity=.75};side.Children.Add(_libraryCount);
+        LibraryList=new ListView{MinHeight=180,SelectionMode=ListViewSelectionMode.Single};
+        LibraryList.ItemTemplate=(DataTemplate)Microsoft.UI.Xaml.Markup.XamlReader.Load("""<DataTemplate xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"><Border Padding="12" Margin="0,4" CornerRadius="8" BorderThickness="1" BorderBrush="{ThemeResource SystemControlForegroundBaseLowBrush}"><StackPanel Spacing="5"><TextBlock Text="{Binding LibraryHeading}" FontSize="19" FontWeight="SemiBold" TextWrapping="Wrap"/><TextBlock Text="{Binding LibraryDetails}" Opacity="0.8" TextWrapping="Wrap"/><TextBlock Text="{Binding LibraryPreview}" Opacity="0.7" TextWrapping="Wrap" MaxLines="3"/></StackPanel></Border></DataTemplate>""");
+        LibraryList.SelectionChanged+=Library_SelectionChanged;side.Children.Add(LibraryList);
+        _librarySearch.TextChanged+=(_,_)=>RefreshLibrary();_librarySort.SelectionChanged+=(_,_)=>RefreshLibrary();_libraryFavorites.Checked+=(_,_)=>RefreshLibrary();_libraryFavorites.Unchecked+=(_,_)=>RefreshLibrary();
+        Action? openLibrarySermon=null;
+        ButtonFor(side,"Open selected sermon",(_,_)=>{if(LibraryList.SelectedItem is SermonRecord)openLibrarySermon?.Invoke();else Status.Text="Select a sermon first.";});
         var settings=new StackPanel{Spacing=12};
         var settingsScroll=new ScrollViewer{Content=Card(settings),Visibility=Visibility.Collapsed};Grid.SetColumn(settingsScroll,2);workspace.Children.Add(settingsScroll);
         settings.Children.Add(new TextBlock{Text="Transcription and local AI",FontSize=24,FontFamily=new FontFamily("Georgia")});
@@ -440,6 +451,7 @@ public sealed partial class MainWindow
         Navigate("Sermon outlines", () => Show(true,true,false));
         Navigate("Scripture references",()=>{Show(true,false,true);Scripture_Click(this,null!);});
         Navigate("Full workspace", () => Show(true,true,true));
+        openLibrarySermon=()=>pageActions["Sermon outlines"]();
         Navigate("Settings", () => { Show(false,false,true); scroll.Visibility=Visibility.Collapsed;settingsScroll.Visibility=Visibility.Visible;tools.Visibility=Visibility.Collapsed; });
         var theme = new ComboBox { Header="Appearance" }; theme.Items.Add("System");theme.Items.Add("Light");theme.Items.Add("Dark");theme.SelectedIndex=0;
         var settingsPath=Path.Combine(Path.GetDirectoryName(_libraryPath)!,"appearance.txt");
