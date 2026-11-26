@@ -40,10 +40,8 @@ public sealed partial class MainWindow
             var field = new TextBox { Header = header, Text = value, Width = width }; panel.Children.Add(field); return field;
         }
         var top = Bar();
-        var preferencePath=Path.Combine(Path.GetDirectoryName(_libraryPath)!,"workspace.txt");
-        double split=.5; string preferredPage="Sermon outlines";
-        try { var prefs=File.ReadAllLines(preferencePath); if(prefs.Length>0 && double.TryParse(prefs[0],System.Globalization.NumberStyles.Float,System.Globalization.CultureInfo.InvariantCulture,out var ratio)&&double.IsFinite(ratio))split=Math.Clamp(ratio,.2,.8); if(prefs.Length>1)preferredPage=prefs[1]; }catch{}
-        void RememberWorkspace(){try{Directory.CreateDirectory(Path.GetDirectoryName(preferencePath)!);File.WriteAllLines(preferencePath,new[]{split.ToString(System.Globalization.CultureInfo.InvariantCulture),preferredPage});}catch{}}
+        var (split, preferredPage) = PreferenceStore.ParseWorkspace(_prefs.Get(PreferenceStore.Workspace), "Sermon outlines");
+        void RememberWorkspace(){_prefs.TrySet(PreferenceStore.Workspace,PreferenceStore.FormatWorkspace(split,preferredPage),out _);}
         SermonTitle = Field(top,"Sermon title","Untitled sermon",240);
         _sermonDate=new CalendarDatePicker{Header="Sermon date",Date=DateTimeOffset.Now,Width=155};top.Children.Add(_sermonDate);
         _speaker=Field(top,"Speaker","",150);_primaryScripture=Field(top,"Primary scripture","",170);
@@ -54,14 +52,14 @@ public sealed partial class MainWindow
         _speaker.TextChanged+=Editor_TextChanged;_primaryScripture.TextChanged+=Editor_TextChanged;_sermonDate.DateChanged+=(_,_)=>Editor_TextChanged(_sermonDate,null!);
         Generator = new ComboBox { Header = "Outline generator", Width = 180 };
         Generator.Items.Add("Original (offline)"); Generator.Items.Add("Ollama (local)");
-        var generatorPreference=Path.Combine(Path.GetDirectoryName(_libraryPath)!,"default-generator.txt");
-        int defaultGenerator=0;
-        try{if(File.Exists(generatorPreference)&&File.ReadAllText(generatorPreference).Trim()=="ollama")defaultGenerator=1;}catch(Exception ex){App.Log("Read generator preference: "+ex.Message);}
+        int defaultGenerator=_prefs.GetDefaultGenerator();
         Generator.SelectedIndex=defaultGenerator;
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(Generator,"Outline generator for this sermon");
         ButtonFor(top,"Save sermon",Save_Click); ButtonFor(top,"New",New_Click); var exports=new DropDownButton{Content="Export"};var menu=new MenuFlyout();
         void ExportItem(string label,RoutedEventHandler handler){var item=new MenuFlyoutItem{Text=label};item.Click+=handler;menu.Items.Add(item);}
         ExportItem("Outline • Markdown",Export_Click);ExportItem("PDF document",Pdf_Click);ExportItem("Word, RTF and transcript files",ExportMore_Click);exports.Flyout=menu;top.Children.Add(exports);
         var generation = Bar(); generation.Children.Add(Generator); ButtonFor(generation,"Generate outline",Generate_Click);
+        ButtonFor(generation,"Cancel generation",CancelGeneration_Click);_cancelGenerationButton=(Button)generation.Children[generation.Children.Count-1];_cancelGenerationButton.IsEnabled=false;
         var audioActions = Bar();
         ButtonFor(audioActions,"Import audio",ImportAudio_Click); ButtonFor(audioActions,"Transcribe",Transcribe_Click); ButtonFor(audioActions,"Cancel",Cancel_Click);
         var actions = Bar();
@@ -186,58 +184,44 @@ public sealed partial class MainWindow
         Grid.SetRow(rich,2);outlinePanel.Children.Add(rich);
         bool syncingOutline=false;
         bool visualDirty=false;
+        float VisualBase()=>(float)rich.FontSize;
         void LoadVisual(){
             if(syncingOutline)return;syncingOutline=true;
             try{
-                var plain=new System.Text.StringBuilder();
-                var spans=new List<(int Start,int End,bool Bold,bool Italic,float Size)>();
-                foreach(var raw in Outline.Text.Replace("\r","").Split('\n')){
-                    var line=raw;float size=17;bool heading=line.StartsWith("## "),sub=line.StartsWith("### "),quote=line.StartsWith("> ");
-                    if(heading||sub){size=sub?19:23;line=line.TrimStart('#',' ');}
-                    if(quote)line="❯ "+line.Substring(2);
-                    if(line.StartsWith("- ")||line.StartsWith("* "))line="• "+line.Substring(2);
-                    foreach(var part in System.Text.RegularExpressions.Regex.Split(line,@"(\*\*\*[^*]+\*\*\*|\*\*[^*]+\*\*|\*[^*]+\*)")){
-                        int start=plain.Length;bool bold=heading||sub||part.StartsWith("**")&&part.EndsWith("**");bool italic=quote||part.StartsWith("***")&&part.EndsWith("***")||part.StartsWith("*")&&!part.StartsWith("**")&&part.EndsWith("*");
-                        plain.Append(part.StartsWith("*")&&part.EndsWith("*")&&part.Length>2?part.Trim('*'):part);if(plain.Length>start)spans.Add((start,plain.Length,bold,italic,size));
-                    }
-                    plain.Append('\r');
-                }
-                if(plain.Length>0)plain.Length--;
-                rich.Document.SetText(Microsoft.UI.Text.TextSetOptions.None,plain.ToString());
-                foreach(var span in spans){var format=rich.Document.GetRange(span.Start,span.End).CharacterFormat;format.Bold=span.Bold?Microsoft.UI.Text.FormatEffect.On:Microsoft.UI.Text.FormatEffect.Off;format.Italic=span.Italic?Microsoft.UI.Text.FormatEffect.On:Microsoft.UI.Text.FormatEffect.Off;format.Size=span.Size;}
+                var visual=OutlineMarkdown.ToVisual(Outline.Text,VisualBase());
+                rich.Document.SetText(Microsoft.UI.Text.TextSetOptions.None,visual.Text);
+                foreach(var span in visual.Spans){var format=rich.Document.GetRange(span.Start,span.End).CharacterFormat;format.Bold=span.Bold?Microsoft.UI.Text.FormatEffect.On:Microsoft.UI.Text.FormatEffect.Off;format.Italic=span.Italic?Microsoft.UI.Text.FormatEffect.On:Microsoft.UI.Text.FormatEffect.Off;format.Size=span.Size;}
             }finally{syncingOutline=false;visualDirty=false;}
         }
+        // Converting the rich document back to Markdown reads every character's formatting, so it is debounced
+        // instead of running on every keystroke. Every path that reads the outline flushes it first (_syncVisual).
+        var visualTimer=DispatcherQueue.CreateTimer();visualTimer.Interval=TimeSpan.FromMilliseconds(350);visualTimer.IsRepeating=false;
         void StoreVisual(){
-            if(syncingOutline||!visualDirty||rich.Visibility!=Visibility.Visible)return;syncingOutline=true;
+            visualTimer.Stop();
+            if(syncingOutline||!visualDirty)return;syncingOutline=true;
             try{
                 rich.Document.GetText(Microsoft.UI.Text.TextGetOptions.None,out var plain);
-                if(plain.EndsWith("\r"))plain=plain[..^1];
-                var output=new System.Text.StringBuilder();int offset=0;
-                foreach(var line in plain.Split('\r')){
-                    if(offset>0)output.Append('\n');
-                    if(line.Length>0){
-                        var first=rich.Document.GetRange(offset,offset+1).CharacterFormat;
-                        bool heading=first.Size>=22,sub=!heading&&first.Size>=19;
-                        if(heading)output.Append("## ");else if(sub)output.Append("### ");
-                        int i=0;bool quote=line.StartsWith("❯ ");if(quote){output.Append("> ");i=2;}else if(line.StartsWith("• ")){output.Append("- ");i=2;}
-                        while(i<line.Length){
-                            var format=rich.Document.GetRange(offset+i,offset+i+1).CharacterFormat;
-                            bool bold=!heading&&!sub&&format.Bold==Microsoft.UI.Text.FormatEffect.On,italic=!quote&&format.Italic==Microsoft.UI.Text.FormatEffect.On;
-                            int end=i+1;while(end<line.Length){var next=rich.Document.GetRange(offset+end,offset+end+1).CharacterFormat;if((!heading&&!sub&&next.Bold==Microsoft.UI.Text.FormatEffect.On)!=bold||(!quote&&next.Italic==Microsoft.UI.Text.FormatEffect.On)!=italic)break;end++;}
-                            var marker=bold&&italic?"***":bold?"**":italic?"*":"";output.Append(marker).Append(line.Substring(i,end-i)).Append(marker);i=end;
-                        }
-                    }
-                    offset+=line.Length+1;
-                }
-                var updated=output.ToString();if(Outline.Text!=updated)Outline.Text=updated;visualDirty=false;
-            }finally{syncingOutline=false;}
+                if(plain.EndsWith('\r'))plain=plain[..^1]; // final paragraph mark added by RichEditBox
+                var baseSize=VisualBase();
+                var updated=OutlineMarkdown.FromVisual(plain,baseSize,
+                    i=>rich.Document.GetRange(i,i+1).CharacterFormat.Size,
+                    i=>{var f=rich.Document.GetRange(i,i+1).CharacterFormat;return(f.Bold==Microsoft.UI.Text.FormatEffect.On,f.Italic==Microsoft.UI.Text.FormatEffect.On);});
+                // Keep the user's original Markdown for lines that were not edited.
+                var merged=OutlineMarkdown.MergeVisualEdit(Outline.Text,updated,baseSize);
+                if(OutlineMarkdown.NormalizeNewlines(Outline.Text)!=merged)Outline.Text=merged;
+                visualDirty=false;
+            }catch(Exception ex){App.Log("Visual editor sync: "+ex.GetType().Name);}
+            finally{syncingOutline=false;}
         }
-        rich.TextChanged+=(_,_)=>{if(!syncingOutline){visualDirty=true;StoreVisual();}};
+        visualTimer.Tick+=(_,_)=>StoreVisual();
+        _syncVisual=StoreVisual;
+        Closed+=(_,_)=>visualTimer.Stop();
+        rich.TextChanged+=(_,_)=>{if(!syncingOutline){visualDirty=true;visualTimer.Stop();visualTimer.Start();}};
         void OutlineEdit(){previewScroll.Visibility=Visibility.Collapsed;Outline.Visibility=Visibility.Collapsed;if(rich.Visibility!=Visibility.Visible){LoadVisual();rich.Visibility=Visibility.Visible;}previewToggle.Content="Reading view";rich.Focus(FocusState.Programmatic);}
         void VisualFormat(Action<Microsoft.UI.Text.ITextSelection> action){OutlineEdit();action(rich.Document.Selection);visualDirty=true;StoreVisual();}
-        ButtonFor(formatBar,"Heading",(_,_)=>VisualFormat(sel=>{sel.CharacterFormat.Size=23;sel.CharacterFormat.Bold=Microsoft.UI.Text.FormatEffect.On;}));
-        ButtonFor(formatBar,"Subheading",(_,_)=>VisualFormat(sel=>{sel.CharacterFormat.Size=19;sel.CharacterFormat.Bold=Microsoft.UI.Text.FormatEffect.On;}));
-        ButtonFor(formatBar,"Normal",(_,_)=>VisualFormat(sel=>{sel.CharacterFormat.Size=17;sel.CharacterFormat.Bold=Microsoft.UI.Text.FormatEffect.Off;sel.CharacterFormat.Italic=Microsoft.UI.Text.FormatEffect.Off;}));
+        ButtonFor(formatBar,"Heading",(_,_)=>VisualFormat(sel=>{sel.CharacterFormat.Size=OutlineMarkdown.HeadingSize(VisualBase());sel.CharacterFormat.Bold=Microsoft.UI.Text.FormatEffect.On;}));
+        ButtonFor(formatBar,"Subheading",(_,_)=>VisualFormat(sel=>{sel.CharacterFormat.Size=OutlineMarkdown.SubheadingSize(VisualBase());sel.CharacterFormat.Bold=Microsoft.UI.Text.FormatEffect.On;}));
+        ButtonFor(formatBar,"Normal",(_,_)=>VisualFormat(sel=>{sel.CharacterFormat.Size=VisualBase();sel.CharacterFormat.Bold=Microsoft.UI.Text.FormatEffect.Off;sel.CharacterFormat.Italic=Microsoft.UI.Text.FormatEffect.Off;}));
         ButtonFor(formatBar,"Bold",(_,_)=>VisualFormat(sel=>sel.CharacterFormat.Bold=Microsoft.UI.Text.FormatEffect.Toggle));
         ButtonFor(formatBar,"Italic",(_,_)=>VisualFormat(sel=>sel.CharacterFormat.Italic=Microsoft.UI.Text.FormatEffect.Toggle));
         ButtonFor(formatBar,"Bullets",(_,_)=>VisualFormat(sel=>sel.Text="• "+sel.Text));
@@ -259,15 +243,17 @@ public sealed partial class MainWindow
         bool writingMode=false;
         Action? toggleFocus=null;
         ButtonFor(formatBar,"Focus mode",(_,_)=>toggleFocus?.Invoke());
-        var scripturePattern=new System.Text.RegularExpressions.Regex(@"\b(?:[123]\s+)?(?:Genesis|Exodus|Leviticus|Numbers|Deuteronomy|Joshua|Judges|Ruth|Samuel|Kings|Chronicles|Ezra|Nehemiah|Esther|Job|Psalms?|Proverbs|Ecclesiastes|Song of Solomon|Isaiah|Jeremiah|Lamentations|Ezekiel|Daniel|Hosea|Joel|Amos|Obadiah|Jonah|Micah|Nahum|Habakkuk|Zephaniah|Haggai|Zechariah|Malachi|Matthew|Mark|Luke|John|Acts|Romans|Corinthians|Galatians|Ephesians|Philippians|Colossians|Thessalonians|Timothy|Titus|Philemon|Hebrews|James|Peter|Jude|Revelation)\s+\d+:\d+(?:[-–]\d+)?\b",System.Text.RegularExpressions.RegexOptions.IgnoreCase);
         var verseCache=new Dictionary<string,string>(StringComparer.OrdinalIgnoreCase);
-        void AddScriptureRuns(TextBlock text,string content){
+        void AddScriptureRuns(TextBlock text,string content,bool bold,bool italic){
+            Microsoft.UI.Xaml.Documents.Run Plain(string value){var run=new Microsoft.UI.Xaml.Documents.Run{Text=value};if(bold)run.FontWeight=Microsoft.UI.Text.FontWeights.Bold;if(italic)run.FontStyle=Windows.UI.Text.FontStyle.Italic;return run;}
             int offset=0;
-            foreach(System.Text.RegularExpressions.Match match in scripturePattern.Matches(content)){
-                if(match.Index>offset)text.Inlines.Add(new Microsoft.UI.Xaml.Documents.Run{Text=content.Substring(offset,match.Index-offset)});
-                var reference=match.Value;
-                var link=new Microsoft.UI.Xaml.Documents.Hyperlink{NavigateUri=new Uri("https://www.biblegateway.com/passage/?search="+Uri.EscapeDataString(reference)+"&version=KJV")};
-                link.Inlines.Add(new Microsoft.UI.Xaml.Documents.Run{Text=reference,Foreground=gold});
+            foreach(var found in ScriptureReferences.Find(content,requireVerse:true)){
+                if(found.Index<offset)continue;
+                if(found.Index>offset)text.Inlines.Add(Plain(content.Substring(offset,found.Index-offset)));
+                var reference=found.Canonical;
+                var link=new Microsoft.UI.Xaml.Documents.Hyperlink{NavigateUri=ScriptureReferences.PassageLink(found)};
+                link.Inlines.Add(new Microsoft.UI.Xaml.Documents.Run{Text=content.Substring(found.Index,found.Length),Foreground=gold});
+                Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(link,reference+", opens King James Version passage");
                 var host=new Microsoft.UI.Xaml.Documents.InlineUIContainer();
                 var label=new TextBlock();label.Inlines.Add(link);
                 var tip=new ToolTip{Content="KJV · Loading passage (internet required)…"};
@@ -276,34 +262,29 @@ public sealed partial class MainWindow
                     if(verseCache.TryGetValue(reference,out var cached)){tip.Content=new TextBlock{Text=cached,TextWrapping=TextWrapping.Wrap,MaxWidth=420};return;}
                     try{
                         using var client=new HttpClient{Timeout=TimeSpan.FromSeconds(12)};
-                        var json=await client.GetStringAsync("https://bible-api.com/"+Uri.EscapeDataString(reference)+"?translation=kjv");
+                        var json=await client.GetStringAsync(ScriptureReferences.PreviewUrl(found));
                         using var doc=System.Text.Json.JsonDocument.Parse(json);
                         var passage=doc.RootElement.GetProperty("text").GetString()?.Trim()??"Passage unavailable.";
                         var value=reference+" (KJV)\n\n"+passage;verseCache[reference]=value;tip.Content=new TextBlock{Text=value,TextWrapping=TextWrapping.Wrap,MaxWidth=420};
                     }catch{tip.Content="Passage unavailable. Click the reference to open KJV online.";}
                 };
-                host.Child=label;text.Inlines.Add(host);offset=match.Index+match.Length;
+                host.Child=label;text.Inlines.Add(host);offset=found.Index+found.Length;
             }
-            if(offset<content.Length)text.Inlines.Add(new Microsoft.UI.Xaml.Documents.Run{Text=content.Substring(offset)});
+            if(offset<content.Length)text.Inlines.Add(Plain(content.Substring(offset)));
         }
         void RenderOutline(){
             preview.Children.Clear();
-            foreach(var raw in Outline.Text.Split('\n')){
+            foreach(var raw in OutlineMarkdown.SplitLines(Outline.Text)){
                 var line=raw.Trim();if(line.Length==0)continue;
-                bool heading=line.StartsWith("#")||System.Text.RegularExpressions.Regex.IsMatch(line,@"^[IVXLCDM]+\.\s")||(line.Length<65&&line.Any(char.IsLetter)&&line==line.ToUpperInvariant());
-                bool scripture=line.StartsWith(">");bool bullet=line.StartsWith("- ")||line.StartsWith("* ");
-                var content=line.TrimStart('#','>',' ');if(bullet)content="• "+line.Substring(2);
-                var text=new TextBlock{TextWrapping=TextWrapping.Wrap,FontFamily=new FontFamily("Georgia"),FontSize=heading?(line.StartsWith("###")?19:23):17,IsTextSelectionEnabled=true};
+                var parsed=OutlineMarkdown.ParseLine(line);
+                bool heading=parsed.Block==OutlineBlock.Heading||System.Text.RegularExpressions.Regex.IsMatch(line,@"^[IVXLCDM]+\.\s")||(line.Length<65&&line.Any(char.IsLetter)&&line==line.ToUpperInvariant());
+                bool scripture=parsed.Block==OutlineBlock.Quote;bool bullet=parsed.Block==OutlineBlock.Bullet;
+                var text=new TextBlock{TextWrapping=TextWrapping.Wrap,FontFamily=new FontFamily("Georgia"),FontSize=heading?(parsed.Block==OutlineBlock.Heading&&parsed.Level>=3?VisualBase()*19/17:VisualBase()*23/17):VisualBase(),IsTextSelectionEnabled=true};
                 if(heading||scripture){text.Foreground=gold;if(heading)text.FontWeight=Microsoft.UI.Text.FontWeights.SemiBold;}
-                if(bullet||scripture)text.Margin=new Thickness(18,0,0,0);
-                foreach(var part in System.Text.RegularExpressions.Regex.Split(content,@"(\*\*\*[^*]+\*\*\*|\*\*[^*]+\*\*|\*[^*]+\*)")){
-                    if(part.Length==0)continue;
-                    if(scripturePattern.IsMatch(part)){AddScriptureRuns(text,part.Trim('*'));continue;}
-                    var run=new Microsoft.UI.Xaml.Documents.Run{Text=part.Trim('*')};
-                    if(part.StartsWith("**")&&part.EndsWith("**"))run.FontWeight=Microsoft.UI.Text.FontWeights.Bold;
-                    if((part.StartsWith("***")||!part.StartsWith("**"))&&part.StartsWith("*")&&part.EndsWith("*"))run.FontStyle=Windows.UI.Text.FontStyle.Italic;
-                    text.Inlines.Add(run);
-                }
+                if(bullet||scripture||parsed.Block==OutlineBlock.Numbered)text.Margin=new Thickness(18,0,0,0);
+                if(bullet)text.Inlines.Add(new Microsoft.UI.Xaml.Documents.Run{Text="• "});
+                if(parsed.Block==OutlineBlock.Numbered)text.Inlines.Add(new Microsoft.UI.Xaml.Documents.Run{Text=parsed.Marker});
+                foreach(var part in parsed.Runs)AddScriptureRuns(text,part.Text,part.Bold,part.Italic);
                 if(scripture)text.FontStyle=Windows.UI.Text.FontStyle.Italic;
                 preview.Children.Add(text);
             }
@@ -383,10 +364,15 @@ public sealed partial class MainWindow
         defaultGeneratorChoice.SelectionChanged+=(_,_)=>{
             if(defaultGeneratorChoice.SelectedIndex<0)return;
             defaultGenerator=defaultGeneratorChoice.SelectedIndex;Generator.SelectedIndex=defaultGenerator;
-            try{Directory.CreateDirectory(Path.GetDirectoryName(generatorPreference)!);File.WriteAllText(generatorPreference+".tmp",defaultGenerator==1?"ollama":"original");File.Move(generatorPreference+".tmp",generatorPreference,true);}
-            catch(Exception ex){Status.Text="Could not save generator preference: "+ex.Message;}
+            if(!_prefs.TrySetDefaultGenerator(defaultGenerator,out var error))Status.Text="Could not save generator preference: "+error;
         };
-        OllamaModel = Field(aiPanel,"Ollama model","llama3.2:3b",360);
+        OllamaModel = Field(aiPanel,"Ollama model",_prefs.GetOllamaModel(),360);
+        OllamaModel.LostFocus+=(_,_)=>{
+            var model=OllamaModel.Text.Trim();
+            if(model==_prefs.GetOllamaModel())return;
+            if(!PreferenceStore.IsValidOllamaModel(model)){Status.Text="Ollama model not saved: use a local model name such as "+PreferenceStore.DefaultOllamaModel+".";return;}
+            if(!_prefs.TrySet(PreferenceStore.OllamaModel,model,out var error))Status.Text="Could not save Ollama model: "+error;
+        };
         var aiStatus=new TextBlock{Text="Optional local AI. Model downloads may require several GB.",TextWrapping=TextWrapping.Wrap};
         var setup=new Button{Content="Set up / check Ollama"};
         var cancelSetup=new Button{Content="Cancel setup",IsEnabled=false};
@@ -398,7 +384,8 @@ public sealed partial class MainWindow
             var token=setupCancel.Token;
             try{
                 var model=OllamaModel.Text.Trim();
-                if(!System.Text.RegularExpressions.Regex.IsMatch(model,@"^[a-zA-Z0-9_.-]+(:[a-zA-Z0-9_.-]+)?$")||model.Contains("cloud",StringComparison.OrdinalIgnoreCase))throw new Exception("Choose a local model, such as llama3.2:3b.");
+                if(!PreferenceStore.IsValidOllamaModel(model))throw new Exception("Choose a local model, such as "+PreferenceStore.DefaultOllamaModel+".");
+                _prefs.TrySet(PreferenceStore.OllamaModel,model,out _);
                 using var local=new HttpClient(new HttpClientHandler{UseProxy=false,AllowAutoRedirect=false}){Timeout=TimeSpan.FromSeconds(3)};
                 async Task<bool> Ready(){try{using var response=await local.GetAsync("http://127.0.0.1:11434/api/version",token);return response.IsSuccessStatusCode;}catch when(!token.IsCancellationRequested){return false;}}
                 if(!await Ready()){
@@ -479,6 +466,7 @@ public sealed partial class MainWindow
             ((FrameworkElement)tools.Children[3]).Visibility=page=="Transcript editor"||page=="Full workspace"?Visibility.Visible:Visibility.Collapsed;
         }
         void Show(bool transcript, bool outline, bool library) {
+            StoreVisual(); // keep visual edits before the editor is hidden
             writingMode=false;
             settingsScroll.Visibility=Visibility.Collapsed;
             editorCards[0].Visibility=transcript?Visibility.Visible:Visibility.Collapsed;
@@ -502,8 +490,7 @@ public sealed partial class MainWindow
         openLibrarySermon=()=>pageActions["Sermon outlines"]();
         Navigate("Settings", () => { Show(false,false,true); scroll.Visibility=Visibility.Collapsed;settingsScroll.Visibility=Visibility.Visible;tools.Visibility=Visibility.Collapsed; });
         var theme = new ComboBox { Header="Appearance" }; theme.Items.Add("System");theme.Items.Add("Light");theme.Items.Add("Dark");theme.SelectedIndex=0;
-        var settingsPath=Path.Combine(Path.GetDirectoryName(_libraryPath)!,"appearance.txt");
-        try { if(File.Exists(settingsPath)&&int.TryParse(File.ReadAllText(settingsPath),out var saved)&&saved>=0&&saved<=2)theme.SelectedIndex=saved; }catch{}
+        theme.SelectedIndex=_prefs.GetInt(PreferenceStore.Appearance,v=>v is >= 0 and <= 2,0);
         void ApplyTheme(){
             shell.RequestedTheme=theme.SelectedIndex==1?ElementTheme.Light:theme.SelectedIndex==2?ElementTheme.Dark:ElementTheme.Default;
             Paint();
@@ -517,14 +504,12 @@ public sealed partial class MainWindow
         }
         shell.ActualThemeChanged+=(_,_)=>Paint();
         ApplyTheme();
-        theme.SelectionChanged += (_,_)=>{ApplyTheme();try{Directory.CreateDirectory(Path.GetDirectoryName(settingsPath)!);File.WriteAllText(settingsPath,theme.SelectedIndex.ToString());}catch{}};
+        theme.SelectionChanged += (_,_)=>{ApplyTheme();if(theme.SelectedIndex>=0&&!_prefs.TrySet(PreferenceStore.Appearance,theme.SelectedIndex.ToString(System.Globalization.CultureInfo.InvariantCulture),out var error))Status.Text="Could not save appearance: "+error;};
         sidebar.RequestedTheme=ElementTheme.Dark;
         var appearancePanel=new StackPanel{Spacing=10};appearancePanel.Children.Add(theme);
-        var fontSizes=new[]{14,17,20,23,26};
+        var fontSizes=PreferenceStore.EditorSizes;
         var fontLabels=new[]{"Small","Default","Large","Extra large","Largest"};
-        int editorSize=17;
-        var fontPath=Path.Combine(Path.GetDirectoryName(_libraryPath)!,"editor-size.txt");
-        try{if(File.Exists(fontPath)&&int.TryParse(File.ReadAllText(fontPath),out var savedSize)&&fontSizes.Contains(savedSize))editorSize=savedSize;}catch(Exception ex){App.Log("Read editor size: "+ex.Message);}
+        int editorSize=_prefs.GetInt(PreferenceStore.EditorSize,fontSizes.Contains,17);
         appearancePanel.Children.Add(new TextBlock{Text="Editor text size"});
         var fontChoices=new RadioButtons{MaxColumns=5,HorizontalAlignment=HorizontalAlignment.Left};
         for(int i=0;i<fontSizes.Length;i++){
@@ -535,7 +520,11 @@ public sealed partial class MainWindow
         var fontDescription=new TextBlock{Opacity=.75};
         var fontPreview=new TextBlock{Text="Thy word is a lamp unto my feet, and a light unto my path.",FontFamily=new FontFamily("Georgia"),TextWrapping=TextWrapping.Wrap};
         void ApplyEditorSize(){
+            // Store visual edits at the old size first; heading detection is relative to the editor size.
+            StoreVisual();
             Transcript.FontSize=editorSize;Outline.FontSize=editorSize;rich.FontSize=editorSize;
+            if(rich.Visibility==Visibility.Visible)LoadVisual();
+            if(previewScroll.Visibility==Visibility.Visible)RenderOutline();
             fontPreview.FontSize=editorSize;fontDescription.Text=fontLabels[Array.IndexOf(fontSizes,editorSize)]+" · Editor preview";
         }
         fontChoices.SelectedIndex=Array.IndexOf(fontSizes,editorSize);
@@ -543,8 +532,7 @@ public sealed partial class MainWindow
         fontChoices.SelectionChanged+=(_,_)=>{
             if(fontChoices.SelectedIndex<0||fontChoices.SelectedIndex>=fontSizes.Length)return;
             editorSize=fontSizes[fontChoices.SelectedIndex];ApplyEditorSize();
-            try{Directory.CreateDirectory(Path.GetDirectoryName(fontPath)!);File.WriteAllText(fontPath+".tmp",editorSize.ToString());File.Move(fontPath+".tmp",fontPath,true);}
-            catch(Exception ex){Status.Text="Could not save editor size: "+ex.Message;}
+            if(!_prefs.TrySet(PreferenceStore.EditorSize,editorSize.ToString(System.Globalization.CultureInfo.InvariantCulture),out var error))Status.Text="Could not save editor size: "+error;
         };
         appearancePanel.Children.Add(fontChoices);
         appearancePanel.Children.Add(fontDescription);
@@ -552,9 +540,8 @@ public sealed partial class MainWindow
         appearancePanel.Children.Insert(0,new TextBlock{Text="Appearance and accessibility",FontSize=22,FontFamily=new FontFamily("Georgia")});settings.Children.Insert(0,Card(appearancePanel));
         var updatePanel=new StackPanel{Spacing=8};
         var autoCheck=new CheckBox{Content="Check for updates on startup",IsChecked=false};
-        var updatePrefs=Path.Combine(Path.GetDirectoryName(_libraryPath)!,"auto-update-check.txt");
-        try{autoCheck.IsChecked=File.Exists(updatePrefs)&&File.ReadAllText(updatePrefs)=="1";}catch{}
-        void SaveUpdatePreference(){try{Directory.CreateDirectory(Path.GetDirectoryName(updatePrefs)!);File.WriteAllText(updatePrefs,autoCheck.IsChecked==true?"1":"0");}catch{}}
+        autoCheck.IsChecked=_prefs.GetBool(PreferenceStore.AutoUpdateCheck,false);
+        void SaveUpdatePreference(){if(!_prefs.TrySet(PreferenceStore.AutoUpdateCheck,autoCheck.IsChecked==true?"1":"0",out var error))Status.Text="Could not save update preference: "+error;}
         autoCheck.Checked+=(_,_)=>SaveUpdatePreference();autoCheck.Unchecked+=(_,_)=>SaveUpdatePreference();
         updatePanel.Children.Add(autoCheck);_updateNotice=new TextBlock{Text="Updates require your approval.",TextWrapping=TextWrapping.Wrap};updatePanel.Children.Add(_updateNotice);
         ButtonFor(updatePanel,"Check now",Updates_Click);
