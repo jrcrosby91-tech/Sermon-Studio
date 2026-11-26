@@ -55,6 +55,8 @@ struct StudioView: View {
     @State private var compare = false
     @State private var showOutline = false
     @State private var outlineDraft = ""
+    @State private var ollamaSetupStatus = "Optional local AI; model downloads may require several GB."
+    @State private var ollamaSetupTask: Task<Void, Never>?
     @AppStorage("outlineUseOllama") private var outlineUseOllama = false
     @State private var outlineSource = ""
     @State private var outlineLookup = ""
@@ -139,6 +141,69 @@ struct StudioView: View {
         outlineSource = text
         showOutline = true
         status = "Editable sermon outline generated. Review all sections before sharing."
+    }
+    private func setupOllama() {
+        let model = localOutlineModel.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard model.range(of: "^[a-zA-Z0-9_.-]+(:[a-zA-Z0-9_.-]+)?$", options: .regularExpression) != nil, !model.lowercased().contains("cloud") else {
+            ollamaSetupStatus = "Choose a local model such as llama3.2:3b."; return
+        }
+        ollamaSetupTask = Task { @MainActor in
+            defer { ollamaSetupTask = nil }
+            let config = URLSessionConfiguration.ephemeral
+            config.timeoutIntervalForRequest = 5
+            config.timeoutIntervalForResource = 7200
+            let session = URLSession(configuration: config)
+            defer { session.finishTasksAndInvalidate() }
+            func ready() async -> Bool {
+                guard let (_, response) = try? await session.data(from: URL(string: "http://127.0.0.1:11434/api/version")!) else { return false }
+                return (response as? HTTPURLResponse)?.statusCode == 200
+            }
+            do {
+                if !(await ready()) {
+                    let paths = ["/Applications/Ollama.app", FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Applications/Ollama.app").path]
+                    guard let app = paths.first(where: { FileManager.default.fileExists(atPath: $0) }) else {
+                        NSWorkspace.shared.open(URL(string: "https://ollama.com/download/mac")!)
+                        ollamaSetupStatus = "Complete the official installation, then select setup again."; return
+                    }
+                    NSWorkspace.shared.open(URL(fileURLWithPath: app))
+                    ollamaSetupStatus = "Starting Ollama…"
+                    for _ in 0..<30 {
+                        try Task.checkCancellation()
+                        if await ready() { break }
+                        try await Task.sleep(nanoseconds: 1_000_000_000)
+                    }
+                    guard await ready() else { throw NSError(domain: "Ollama", code: 1, userInfo: [NSLocalizedDescriptionKey: "Open Ollama and retry setup."]) }
+                }
+                func request(_ path: String, _ body: [String: Any]) throws -> URLRequest {
+                    var req = URLRequest(url: URL(string: "http://127.0.0.1:11434/api/" + path)!)
+                    req.httpMethod = "POST"
+                    req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+                    req.httpBody = try JSONSerialization.data(withJSONObject: body)
+                    req.timeoutInterval = 600
+                    return req
+                }
+                let (_, show) = try await session.data(for: request("show", ["model": model]))
+                if (show as? HTTPURLResponse)?.statusCode != 200 {
+                    ollamaSetupStatus = "Downloading " + model + "…"
+                    let (bytes, response) = try await session.bytes(for: request("pull", ["model": model, "stream": true]))
+                    guard (response as? HTTPURLResponse)?.statusCode == 200 else { throw URLError(.badServerResponse) }
+                    var complete = false
+                    for try await line in bytes.lines {
+                        try Task.checkCancellation()
+                        guard let object = try JSONSerialization.jsonObject(with: Data(line.utf8)) as? [String: Any] else { continue }
+                        if let error = object["error"] as? String { throw NSError(domain: "Ollama", code: 2, userInfo: [NSLocalizedDescriptionKey: error]) }
+                        if let state = object["status"] as? String { ollamaSetupStatus = state; complete = state == "success" }
+                        if let total = object["total"] as? Double, let done = object["completed"] as? Double, total > 0 {
+                            ollamaSetupStatus += String(format: " · %.0f%%", done / total * 100)
+                        }
+                    }
+                    guard complete else { throw URLError(.networkConnectionLost) }
+                }
+                ollamaSetupStatus = "Ready: " + model + " is available locally."
+            } catch {
+                ollamaSetupStatus = Task.isCancelled ? "Setup canceled." : "Setup failed: " + error.localizedDescription
+            }
+        }
     }
     private struct OllamaReply: Decodable {
         let response: String
@@ -502,7 +567,10 @@ struct StudioView: View {
                     Text("Optional offline AI sermon outlines").font(.headline)
                     Toggle("Use Ollama for outlines by default", isOn: $outlineUseOllama)
                     TextField("Ollama model name", text: $localOutlineModel)
-                    Text("Install Ollama, run ollama pull llama3.2:3b once, then keep Ollama running. All outline requests go only to 127.0.0.1 on your Mac. Model downloads require internet; generation does not.").font(.caption).foregroundStyle(.secondary)
+                    Button("Set up / check Ollama") { setupOllama() }.disabled(ollamaSetupTask != nil)
+                    if ollamaSetupTask != nil { Button("Cancel setup") { ollamaSetupTask?.cancel() }; ProgressView() }
+                    Text(ollamaSetupStatus).font(.caption).foregroundStyle(.secondary)
+                    Text("Setup downloads a local model. Complete the official installer if prompted, then retry setup.").font(.caption).foregroundStyle(.secondary)
                     Divider()
                     Text("Software updates").font(.headline)
                     if let controller = updates.controller {
