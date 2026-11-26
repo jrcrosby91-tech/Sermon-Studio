@@ -1,6 +1,7 @@
 import Foundation
 
-public struct ScriptureReference: Equatable, Hashable, Sendable {
+public struct ScriptureReference: Equatable, Hashable, Identifiable, Sendable {
+    public var id: String { canonical }
     public var book: String
     public var chapter: Int
     public var verse: Int?
