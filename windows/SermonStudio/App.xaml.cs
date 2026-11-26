@@ -21,6 +21,17 @@ public partial class App : Application
     protected override void OnLaunched(LaunchActivatedEventArgs args)
     {
         try {
+            if (Environment.GetCommandLineArgs().Contains("--safe-mode"))
+            {
+                Log("Safe mode: creating minimal window");
+                _window = new Window { Title = "Sermon Studio diagnostics" };
+                var text = new Microsoft.UI.Xaml.Controls.TextBlock { Text = "WinUI diagnostic window — safe mode", FontSize = 24, Margin = new Thickness(24) };
+                text.Loaded += (_, _) => Log("Safe mode content loaded");
+                _window.Content = text;
+                _window.Activate();
+                Log("Safe mode activated");
+                return;
+            }
             Log("Creating MainWindow");
             _window = new MainWindow();
             _window.Activate();
