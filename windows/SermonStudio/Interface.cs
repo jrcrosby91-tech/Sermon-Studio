@@ -218,7 +218,26 @@ public sealed partial class MainWindow
         navButtons[4].Background=gold;navButtons[4].Foreground=navy;
         SetToolbar("Sermon outlines");
         shell.Children.Add(new ScrollViewer{Content=sidebar,Background=navy,VerticalScrollBarVisibility=ScrollBarVisibility.Auto}); Grid.SetColumn(root,1); shell.Children.Add(root);
+        var fullScreenButton = new Button { Content = "Full screen (F11)", HorizontalAlignment = HorizontalAlignment.Stretch };
+        void ToggleFullScreen()
+        {
+            try {
+                bool full = AppWindow.Presenter.Kind == Microsoft.UI.Windowing.AppWindowPresenterKind.FullScreen;
+                AppWindow.SetPresenter(full ? Microsoft.UI.Windowing.AppWindowPresenterKind.Default : Microsoft.UI.Windowing.AppWindowPresenterKind.FullScreen);
+                if(full && AppWindow.Presenter is Microsoft.UI.Windowing.OverlappedPresenter normal) normal.Maximize();
+                fullScreenButton.Content = full ? "Full screen (F11)" : "Exit full screen (F11)";
+            } catch(Exception ex) { Status.Text = "Window mode: " + ex.Message; }
+        }
+        fullScreenButton.Click += (_,_) => ToggleFullScreen();
+        sidebar.Children.Add(fullScreenButton);
+        var shortcut = new Microsoft.UI.Xaml.Input.KeyboardAccelerator { Key = Windows.System.VirtualKey.F11 };
+        shortcut.Invoked += (_,e) => { ToggleFullScreen(); e.Handled = true; };
+        shell.KeyboardAccelerators.Add(shortcut);
         Content = shell;
+        shell.Loaded += (_,_) => {
+            try { if(AppWindow.Presenter is Microsoft.UI.Windowing.OverlappedPresenter presenter) presenter.Maximize(); }
+            catch(Exception ex) { App.Log("Maximize: " + ex.Message); }
+        };
     }
     private void OnFirstLayout(object? sender, object e)
     {
