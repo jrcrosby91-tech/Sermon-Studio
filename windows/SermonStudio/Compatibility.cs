@@ -45,8 +45,9 @@ public sealed partial class MainWindow
             var path=Path.Combine(folder,"Sermon-"+DateTime.Now.ToString("yyyyMMdd-HHmmss")+".pdf");
             var doc=new MigraDoc.DocumentObjectModel.Document();
             doc.Info.Title=SermonTitle.Text;
-            doc.Styles["Normal"]!.Font.Name="Arial";
-            doc.Styles["Normal"].Font.Size=11;
+            var normal=doc.Styles["Normal"] ?? throw new InvalidOperationException("PDF Normal style unavailable.");
+            normal.Font.Name="Arial";
+            normal.Font.Size=11;
             var section=doc.AddSection();
             section.AddParagraph(SermonTitle.Text,"Heading1");
             foreach(var line in Transcript.Text.Replace("\r","").Split('\n')) section.AddParagraph(line);
