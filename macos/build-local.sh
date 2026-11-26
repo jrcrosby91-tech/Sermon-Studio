@@ -21,6 +21,19 @@ APP="$STAGE/Sermon Studio.app"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$BIN/SermonStudio" "$APP/Contents/MacOS/"
 cp Info.plist "$APP/Contents/Info.plist"
+# Generate the native macOS application icon from the approved Sermon Studio artwork.
+ICON_SOURCE="$PWD/AppIcon.png"
+[[ -s "$ICON_SOURCE" ]] || { echo "Missing macos/AppIcon.png. Add the approved logo before releasing."; exit 1; }
+ICONSET="$STAGE/SermonStudio.iconset"
+mkdir -p "$ICONSET"
+for size in 16 32 128 256 512; do
+  sips -s format png -z "$size" "$size" "$ICON_SOURCE" --out "$ICONSET/icon_${size}x${size}.png" >/dev/null
+  double=$((size * 2))
+  sips -s format png -z "$double" "$double" "$ICON_SOURCE" --out "$ICONSET/icon_${size}x${size}@2x.png" >/dev/null
+done
+iconutil -c icns "$ICONSET" -o "$APP/Contents/Resources/SermonStudio.icns"
+/usr/libexec/PlistBuddy -c "Add :CFBundleIconFile string SermonStudio" "$APP/Contents/Info.plist"
+
 # Include SwiftPM resource bundles if dependencies provide them.
 for bundle in "$BIN"/*.bundle; do
   [[ -d "$bundle" ]] || continue
