@@ -51,6 +51,7 @@ struct StudioView: View {
     @State private var findText = ""
     @State private var replacement = ""
     @State private var compare = false
+    @State private var showOutline = false
     @AppStorage("editorFontSize") private var fontSize = 18.0
     @AppStorage("appearanceMode") private var appearanceMode = "system"
     private var preferredAppearance: ColorScheme? {
@@ -153,8 +154,17 @@ struct StudioView: View {
                             }
                             Text("Verify references against scripture.").font(.caption)
                         }
-                        DisclosureGroup("Extractive outline") {
-                            ForEach(outline, id: \.self) { Text($0) }
+                        DisclosureGroup("Extractive outline", isExpanded: $showOutline) {
+                            VStack(alignment: .leading, spacing: 10) {
+                                ForEach(Array(outline.enumerated()), id: \.offset) { index, excerpt in
+                                    Text("\(index + 1). \(String(excerpt.prefix(220)))\(excerpt.count > 220 ? "…" : "")")
+                                        .font(.callout)
+                                        .fixedSize(horizontal: false, vertical: true)
+                                }
+                                Button("Collapse outline") { showOutline = false }
+                            }
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.vertical, 6)
                         }
                         DisclosureGroup("Timestamps and transcript review") {
                             if segments.isEmpty { Text("No timestamp data available.") }
