@@ -12,8 +12,10 @@ on:
 permissions:
   contents: read
 jobs:
-  build:
-    runs-on: macos-15
+  # Compiles every target and runs the tests. Uses an Intel runner because Apple Silicon
+  # hosted runners are often capacity-constrained; the Swift code is architecture-independent.
+  test:
+    runs-on: macos-15-intel
     steps:
       - uses: actions/checkout@v4
       - name: Toolchain
@@ -21,9 +23,28 @@ jobs:
           uname -m
           sw_vers
           swift --version
+      - name: Compile all targets
+        working-directory: macos
+        run: swift build --build-tests 2>&1 | tee build.log; exit ${PIPESTATUS[0]}
       - name: Run SermonCore tests
         working-directory: macos
-        run: swift test --parallel 2>&1 | tee test.log; exit ${PIPESTATUS[0]}
+        run: swift test --skip-build --parallel 2>&1 | tee test.log; exit ${PIPESTATUS[0]}
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: macos-test-logs
+          path: |
+            macos/build.log
+            macos/test.log
+  # Apple Silicon release packaging and a startup smoke test.
+  package:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Toolchain
+        run: |
+          uname -m
+          swift --version
       - name: Build, package and sign (ad hoc) the app
         run: CI=1 bash macos/build-local.sh
       - name: Verify bundle and launch the app
@@ -50,4 +71,3 @@ jobs:
           path: |
             macos/dist/*.dmg
             macos/dist/build.log
-            macos/test.log
