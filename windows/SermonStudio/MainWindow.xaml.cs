@@ -21,6 +21,7 @@ public sealed partial class MainWindow : Window
 
     public MainWindow()
     {
+        _loading = true;
         InitializeComponent();
         _autosave = DispatcherQueue.CreateTimer();
         _autosave.Interval = TimeSpan.FromMilliseconds(900);
@@ -32,6 +33,7 @@ public sealed partial class MainWindow : Window
             RefreshLibrary();
         }
         catch (Exception ex) { Status.Text = "Library could not be loaded: " + ex.Message; }
+        _loading = false;
     }
 
     private void RefreshLibrary()
@@ -51,7 +53,7 @@ public sealed partial class MainWindow : Window
     private void Library_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
         if (_loading || LibraryList.SelectedItem is not SermonRecord item) return;
-        _autosave.Stop();
+        if (_autosave.IsRunning) { _autosave.Stop(); Save(); }
         _loading = true;
         _selectedId = item.Id;
         SermonTitle.Text = item.Title;
@@ -63,7 +65,7 @@ public sealed partial class MainWindow : Window
 
     private void New_Click(object sender, RoutedEventArgs e)
     {
-        _autosave.Stop();
+        if (_autosave.IsRunning) { _autosave.Stop(); Save(); }
         _loading = true;
         _selectedId = null;
         LibraryList.SelectedItem = null;
@@ -146,7 +148,8 @@ public sealed partial class MainWindow : Window
             item.Outline = Outline.Text;
             if (string.IsNullOrWhiteSpace(item.Date)) item.Date = DateTime.Today.ToString("yyyy-MM-dd");
             Directory.CreateDirectory(Path.GetDirectoryName(_libraryPath)!);
-            File.WriteAllText(_libraryPath, JsonSerializer.Serialize(_library, new JsonSerializerOptions { WriteIndented = true }));
+            File.WriteAllText(_libraryPath + ".tmp", JsonSerializer.Serialize(_library, new JsonSerializerOptions { WriteIndented = true }));
+            File.Move(_libraryPath + ".tmp", _libraryPath, true);
             RefreshLibrary();
             Status.Text = "Sermon and outline saved locally.";
         }
