@@ -18,6 +18,8 @@ public sealed partial class MainWindow : Window
     private List<SermonRecord> _library = new();
     private string? _selectedId;
     private bool _loading;
+    private bool _archiveReadFailed;
+    private int _workspaceRevision;
     private CalendarDatePicker? _sermonDate;
     private TextBox? _speaker, _primaryScripture;
     private TextBlock? _saveIndicator, _libraryCount;
@@ -44,6 +46,7 @@ public sealed partial class MainWindow : Window
         }
         catch (Exception ex)
         {
+            _archiveReadFailed=true;
             // Keep a copy of the unreadable file so the next save does not overwrite the user's sermons.
             var kept = "";
             try { kept = _libraryPath + ".unreadable-" + DateTime.Now.ToString("yyyyMMdd-HHmmss"); File.Copy(_libraryPath, kept, true); }
@@ -51,15 +54,17 @@ public sealed partial class MainWindow : Window
             Status.Text = "Library could not be loaded: " + ex.Message + (kept.Length > 0 ? " A copy was kept at " + kept : "");
         }
         _loading = false;
+        Closed+=(_,_)=>{if(_autosave.IsRunning){_autosave.Stop();Save();}};
     }
 
     internal static List<SermonRecord> NormalizeRecords(IEnumerable<SermonRecord?>? records)
     {
         var list = new List<SermonRecord>();
+        var ids=new HashSet<string>(StringComparer.Ordinal);
         foreach (var r in records ?? Enumerable.Empty<SermonRecord?>())
         {
             if (r == null) continue;
-            if (string.IsNullOrWhiteSpace(r.Id)) r.Id = Guid.NewGuid().ToString();
+            if (string.IsNullOrWhiteSpace(r.Id)||!ids.Add(r.Id)){r.Id=Guid.NewGuid().ToString();ids.Add(r.Id);}
             r.Title ??= ""; r.Date ??= ""; r.Original ??= ""; r.Cleaned ??= "";
             r.Outline ??= ""; r.Srt ??= ""; r.Vtt ??= "";
             list.Add(r);
@@ -96,8 +101,10 @@ public sealed partial class MainWindow : Window
     private void Library_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
         if (_loading || LibraryList.SelectedItem is not SermonRecord item) return;
+        if(_transcription!=null){RefreshLibrary();Status.Text="Finish or cancel transcription before switching sermons.";return;}
         if (_autosave.IsRunning) { _autosave.Stop(); Save(); }
         _loading = true;
+        _workspaceRevision++;ResetRecording();
         _selectedId = item.Id;
         item.LastOpened=DateTimeOffset.UtcNow;
         try{PersistLibrary();}catch(Exception ex){Status.Text="Could not save recent history: "+ex.Message;}
@@ -123,6 +130,8 @@ public sealed partial class MainWindow : Window
 
     private void New_Click(object sender, RoutedEventArgs e)
     {
+        if(_transcription!=null){Status.Text="Finish or cancel transcription first.";return;}
+        _workspaceRevision++;ResetRecording();
         if (_autosave.IsRunning) { _autosave.Stop(); Save(); }
         _loading = true;
         _selectedId = null;
@@ -151,6 +160,7 @@ public sealed partial class MainWindow : Window
         }
         if (Generator.SelectedIndex == 1)
         {
+            var revision=_workspaceRevision;var source=Transcript.Text;var priorOutline=Outline.Text;
             Status.Text = "Contacting local Ollama service…";
             try
             {
@@ -159,6 +169,7 @@ public sealed partial class MainWindow : Window
                         prompt = "Create a faithful, structured Christian sermon outline with introduction, main points, scripture references, applications and conclusion. Do not invent quotations or verses. Use only this transcript:\n" + Transcript.Text });
                 response.EnsureSuccessStatusCode();
                 using var json = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+                if(revision!=_workspaceRevision||source!=Transcript.Text||priorOutline!=Outline.Text){Status.Text="Outline result discarded because the sermon or editor changed.";return;}
                 Outline.Text = json.RootElement.GetProperty("response").GetString() ?? "";
                 Status.Text = "Ollama outline generated locally. Review before sharing.";
             }
@@ -201,6 +212,7 @@ public sealed partial class MainWindow : Window
 
     private void Save()
     {
+        if(_archiveReadFailed){Status.Text="Library could not be read; saving is blocked to protect the original archive.";if(_saveIndicator!=null)_saveIndicator.Text="Save failed";return;}
         try
         {
             var item = _library.FirstOrDefault(x => x.Id == _selectedId);
@@ -235,6 +247,7 @@ public sealed partial class MainWindow : Window
     }
 
     private void PersistLibrary(){
+        if(_archiveReadFailed)throw new IOException("Original archive could not be read; writes are blocked.");
         Directory.CreateDirectory(Path.GetDirectoryName(_libraryPath)!);
         File.WriteAllText(_libraryPath+".tmp",JsonSerializer.Serialize(_library,new JsonSerializerOptions{WriteIndented=true}));
         File.Move(_libraryPath+".tmp",_libraryPath,true);
