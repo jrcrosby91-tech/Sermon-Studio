@@ -6,10 +6,10 @@
     <NavigationView x:Name="Navigation" PaneDisplayMode="Left" IsBackButtonVisible="Collapsed"
                     SelectionChanged="Navigation_SelectionChanged">
         <NavigationView.MenuItems>
-            <NavigationViewItem Content="Dashboard" Tag="dashboard" Icon="Home"/>
-            <NavigationViewItem Content="Transcript Editor" Tag="transcript" Icon="Document"/>
-            <NavigationViewItem Content="Sermon Outlines" Tag="outlines" Icon="Edit"/>
-            <NavigationViewItem Content="Sermon Library" Tag="library" Icon="Library"/>
+            <NavigationViewItem Content="Dashboard" Tag="dashboard"/>
+            <NavigationViewItem Content="Transcript Editor" Tag="transcript"/>
+            <NavigationViewItem Content="Sermon Outlines" Tag="outlines"/>
+            <NavigationViewItem Content="Sermon Library" Tag="library"/>
         </NavigationView.MenuItems>
         <Grid Padding="20" RowSpacing="12">
             <Grid.RowDefinitions>
@@ -58,7 +58,7 @@
                     <TextBox x:Name="Transcript" TextChanged="Editor_TextChanged" AcceptsReturn="True" TextWrapping="Wrap" VerticalAlignment="Stretch"
                              VerticalContentAlignment="Top" MinHeight="400"/>
                 </StackPanel>
-                <Border Grid.Column="1" Width="2" Background="{ThemeResource SystemControlForegroundBaseLowBrush}" HorizontalAlignment="Center"/>
+                <Border Grid.Column="1" Width="2" Background="Gray" HorizontalAlignment="Center"/>
                 <StackPanel Grid.Column="2" Spacing="8">
                     <TextBlock Text="Sermon outline" FontSize="20" FontWeight="SemiBold"/>
                     <TextBox x:Name="Outline" AcceptsReturn="True" TextWrapping="Wrap" VerticalAlignment="Stretch"
