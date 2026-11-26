@@ -174,6 +174,7 @@ public sealed partial class MainWindow
         var rich=new RichEditBox{FontFamily=new FontFamily("Georgia"),FontSize=17,TextWrapping=TextWrapping.Wrap,Visibility=Visibility.Collapsed};
         Grid.SetRow(rich,2);outlinePanel.Children.Add(rich);
         bool syncingOutline=false;
+        bool visualDirty=false;
         void LoadVisual(){
             if(syncingOutline)return;syncingOutline=true;
             try{
@@ -183,20 +184,20 @@ public sealed partial class MainWindow
                     var line=raw;float size=17;bool heading=line.StartsWith("## "),sub=line.StartsWith("### "),quote=line.StartsWith("> ");
                     if(heading||sub){size=sub?19:23;line=line.TrimStart('#',' ');}
                     if(quote)line="❯ "+line.Substring(2);
-                    if(line.StartsWith("- "))line="• "+line.Substring(2);
+                    if(line.StartsWith("- ")||line.StartsWith("* "))line="• "+line.Substring(2);
                     foreach(var part in System.Text.RegularExpressions.Regex.Split(line,@"(\*\*\*[^*]+\*\*\*|\*\*[^*]+\*\*|\*[^*]+\*)")){
                         int start=plain.Length;bool bold=heading||sub||part.StartsWith("**")&&part.EndsWith("**");bool italic=quote||part.StartsWith("***")&&part.EndsWith("***")||part.StartsWith("*")&&!part.StartsWith("**")&&part.EndsWith("*");
-                        plain.Append(part.Trim('*'));if(plain.Length>start)spans.Add((start,plain.Length,bold,italic,size));
+                        plain.Append(part.StartsWith("*")&&part.EndsWith("*")&&part.Length>2?part.Trim('*'):part);if(plain.Length>start)spans.Add((start,plain.Length,bold,italic,size));
                     }
                     plain.Append('\r');
                 }
                 if(plain.Length>0)plain.Length--;
                 rich.Document.SetText(Microsoft.UI.Text.TextSetOptions.None,plain.ToString());
                 foreach(var span in spans){var format=rich.Document.GetRange(span.Start,span.End).CharacterFormat;format.Bold=span.Bold?Microsoft.UI.Text.FormatEffect.On:Microsoft.UI.Text.FormatEffect.Off;format.Italic=span.Italic?Microsoft.UI.Text.FormatEffect.On:Microsoft.UI.Text.FormatEffect.Off;format.Size=span.Size;}
-            }finally{syncingOutline=false;}
+            }finally{syncingOutline=false;visualDirty=false;}
         }
         void StoreVisual(){
-            if(syncingOutline||rich.Visibility!=Visibility.Visible)return;syncingOutline=true;
+            if(syncingOutline||!visualDirty||rich.Visibility!=Visibility.Visible)return;syncingOutline=true;
             try{
                 rich.Document.GetText(Microsoft.UI.Text.TextGetOptions.None,out var plain);
                 if(plain.EndsWith("\r"))plain=plain[..^1];
@@ -217,12 +218,12 @@ public sealed partial class MainWindow
                     }
                     offset+=line.Length+1;
                 }
-                Outline.Text=output.ToString();
+                var updated=output.ToString();if(Outline.Text!=updated)Outline.Text=updated;visualDirty=false;
             }finally{syncingOutline=false;}
         }
-        rich.TextChanged+=(_,_)=>StoreVisual();
+        rich.TextChanged+=(_,_)=>{if(!syncingOutline){visualDirty=true;StoreVisual();}};
         void OutlineEdit(){previewScroll.Visibility=Visibility.Collapsed;Outline.Visibility=Visibility.Collapsed;if(rich.Visibility!=Visibility.Visible){LoadVisual();rich.Visibility=Visibility.Visible;}previewToggle.Content="Reading view";rich.Focus(FocusState.Programmatic);}
-        void VisualFormat(Action<Microsoft.UI.Text.ITextSelection> action){OutlineEdit();action(rich.Document.Selection);StoreVisual();}
+        void VisualFormat(Action<Microsoft.UI.Text.ITextSelection> action){OutlineEdit();action(rich.Document.Selection);visualDirty=true;StoreVisual();}
         ButtonFor(formatBar,"Heading",(_,_)=>VisualFormat(sel=>{sel.CharacterFormat.Size=23;sel.CharacterFormat.Bold=Microsoft.UI.Text.FormatEffect.On;}));
         ButtonFor(formatBar,"Subheading",(_,_)=>VisualFormat(sel=>{sel.CharacterFormat.Size=19;sel.CharacterFormat.Bold=Microsoft.UI.Text.FormatEffect.On;}));
         ButtonFor(formatBar,"Normal",(_,_)=>VisualFormat(sel=>{sel.CharacterFormat.Size=17;sel.CharacterFormat.Bold=Microsoft.UI.Text.FormatEffect.Off;sel.CharacterFormat.Italic=Microsoft.UI.Text.FormatEffect.Off;}));
@@ -231,8 +232,8 @@ public sealed partial class MainWindow
         ButtonFor(formatBar,"Bullets",(_,_)=>VisualFormat(sel=>sel.Text="• "+sel.Text));
         ButtonFor(formatBar,"Numbered",(_,_)=>VisualFormat(sel=>sel.Text=string.Join("\r",sel.Text.Split('\r').Select((line,i)=>(i+1)+". "+line))));
         ButtonFor(formatBar,"Scripture",(_,_)=>VisualFormat(sel=>{sel.Text="❯ "+sel.Text;sel.CharacterFormat.Italic=Microsoft.UI.Text.FormatEffect.On;}));
-        ButtonFor(formatBar,"Undo",(_,_)=>{OutlineEdit();rich.Document.Undo();StoreVisual();});
-        ButtonFor(formatBar,"Redo",(_,_)=>{OutlineEdit();rich.Document.Redo();StoreVisual();});
+        ButtonFor(formatBar,"Undo",(_,_)=>{OutlineEdit();rich.Document.Undo();visualDirty=true;StoreVisual();});
+        ButtonFor(formatBar,"Redo",(_,_)=>{OutlineEdit();rich.Document.Redo();visualDirty=true;StoreVisual();});
         ButtonFor(formatBar,"Markdown",(_,_)=>{StoreVisual();rich.Visibility=Visibility.Collapsed;previewScroll.Visibility=Visibility.Collapsed;Outline.Visibility=Visibility.Visible;previewToggle.Content="Visual editor";});
         void LocateSource(string passage){
             var query=System.Text.RegularExpressions.Regex.Replace(passage,@"^[#>*\s\d.]+","").Replace("**","").Trim();
