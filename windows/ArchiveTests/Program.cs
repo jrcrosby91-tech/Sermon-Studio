@@ -1,0 +1,19 @@
+using SermonStudio;
+using System.Text.Json;
+static void Check(bool condition,string name){if(!condition)throw new Exception("FAIL: "+name);Console.WriteLine("PASS: "+name);}
+var options=new JsonSerializerOptions{PropertyNameCaseInsensitive=true};
+var legacy=JsonSerializer.Deserialize<List<SermonRecord?>>("""[null,{"id":"same","title":"Faith","original":"Original text","outline":"**Faith**"},{"id":"same","title":null,"original":null},{"id":""}]""",options);
+var records=ArchiveRules.NormalizeRecords(legacy);
+Check(records.Count==3,"Null records ignored");
+Check(records.Select(x=>x.Id).Distinct().Count()==3&&records.All(x=>!string.IsNullOrWhiteSpace(x.Id)),"Unique nonempty identifiers");
+Check(records[0].Id=="same"&&records[0].Outline=="**Faith**","Existing identity and formatting preserved");
+Check(records[1].Title==""&&records[1].Original=="","Legacy null text normalized");
+Check(ArchiveRules.NormalizeRecords(null).Count==0,"Empty archive");
+var sermon=records[0];sermon.Series="Romans";sermon.Collection="Sunday";sermon.Tags="faith";sermon.Favorite=true;sermon.Segments=new(){new(){Start=1,End=3,Text="Faith"}};
+var json=JsonSerializer.Serialize(records);
+var restored=ArchiveRules.NormalizeRecords(JsonSerializer.Deserialize<List<SermonRecord?>>(json,options));
+Check(restored[0].Series=="Romans"&&restored[0].Collection=="Sunday"&&restored[0].Tags=="faith"&&restored[0].Favorite,"Metadata round trip");
+Check(restored[0].Segments?.Single().Text=="Faith","Timestamp round trip");
+Check(!json.Contains("LibraryPreview")&&!json.Contains("LibraryHeading"),"Computed UI properties excluded");
+Check(restored[0].LibraryPreview=="Original text","Preview text");
+Console.WriteLine("All archive regression checks passed.");
