@@ -19,10 +19,26 @@ public sealed partial class MainWindow
         }
         _modelChoice = new ComboBox { Header="Offline model", Width=210 };
         foreach(var name in new[]{"tiny.en","base.en","small.en","medium.en","large-v3-turbo"}) _modelChoice.Items.Add(name);
+        var preference=Path.Combine(Path.GetDirectoryName(_modelFolder)!,"offline-model.txt");
         _modelChoice.SelectedIndex=1;
-        void SelectModel() { var path=Path.Combine(_modelFolder,"ggml-"+_modelChoice.SelectedItem+".bin"); WhisperModel.Text=path; }
-        _modelChoice.SelectionChanged += (_,_)=>SelectModel();
-        SelectModel(); panel.Children.Add(_modelChoice);
+        try{
+            if(File.Exists(preference)){
+                var saved=File.ReadAllText(preference).Trim();
+                if(_modelChoice.Items.Contains(saved))_modelChoice.SelectedItem=saved;
+            }
+        }catch(Exception ex){App.Log("Read offline model preference: "+ex.Message);}
+        void SelectModel(bool persist){
+            if(_modelChoice.SelectedItem is not string model)return;
+            WhisperModel.Text=Path.Combine(_modelFolder,"ggml-"+model+".bin");
+            if(!persist)return;
+            try{
+                Directory.CreateDirectory(Path.GetDirectoryName(preference)!);
+                File.WriteAllText(preference+".tmp",model);
+                File.Move(preference+".tmp",preference,true);
+            }catch(Exception ex){App.Log("Save offline model preference: "+ex.Message);Status.Text="Could not save model preference: "+ex.Message;}
+        }
+        _modelChoice.SelectionChanged += (_,_)=>SelectModel(true);
+        SelectModel(false); panel.Children.Add(_modelChoice);
         void Add(string label,RoutedEventHandler handler) { var b=new Button{Content=label}; b.Click+=handler; panel.Children.Add(b); }
         Add("Download selected model",DownloadModel_Click);
         Add("Cancel model download",(_,_)=>_modelDownload?.Cancel());
@@ -53,7 +69,7 @@ public sealed partial class MainWindow
                 }
                 if(response.Content.Headers.ContentLength is long expected && total!=expected) throw new IOException("Incomplete download.");
             }
-            File.Move(path+".part",path,true); WhisperModel.Text=path; Status.Text="Model ready for offline transcription.";
+            File.Move(path+".part",path,true); if(Equals(_modelChoice?.SelectedItem,model))WhisperModel.Text=path; Status.Text=model+" downloaded and ready for offline transcription.";
         } catch(OperationCanceledException){Status.Text="Model download canceled.";}
         catch(Exception ex){Status.Text="Download failed: "+ex.Message;}
         finally{_modelDownload.Dispose();_modelDownload=null;try{File.Delete(path+".part");}catch{}}
