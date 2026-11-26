@@ -44,6 +44,7 @@ Section("Archive normalization (legacy tests)", () =>
     Check(restored[0].Segments?.Single().Text == "Faith", "Timestamp round trip");
     Check(!json.Contains("LibraryPreview") && !json.Contains("LibraryHeading"), "Computed UI properties excluded");
     Check(restored[0].LibraryPreview == "Original text", "Preview text");
+    Check(restored[0].ToString() == "★  Faith" && new SermonRecord().ToString() == "Untitled sermon", "Accessible item name is the sermon title");
     var missing = ArchiveRules.NormalizeRecords(JsonSerializer.Deserialize<List<SermonRecord?>>("""[{"speaker":null,"tags":null,"series":null,"collection":null,"primaryScripture":null}]""", options)).Single();
     Check(missing.Speaker == "" && missing.Tags == "" && missing.Series == "" && missing.Collection == "" && missing.PrimaryScripture == "", "Legacy null metadata normalized");
     Check(ArchiveRules.NormalizeRecords(restored).Select(x => x.Id).SequenceEqual(restored.Select(x => x.Id)), "Repeated normalization preserves identity");
@@ -123,6 +124,13 @@ Section("Atomic writes", () =>
     File.WriteAllText(stale, "partial");
     File.SetLastWriteTimeUtc(stale, DateTime.UtcNow.AddHours(-2));
     Check(AtomicFile.CleanupTemporaryFiles(path, TimeSpan.FromHours(1)) == 1 && !File.Exists(stale) && File.Exists(path), "Stale temporary files cleaned, library kept");
+    var temp = Dir("temp-audio");
+    var oldWav = Path.Combine(temp, "sermon-" + Guid.NewGuid().ToString("N") + ".wav");
+    var newWav = Path.Combine(temp, "sermon-" + Guid.NewGuid().ToString("N") + ".wav");
+    var unrelated = Path.Combine(temp, "sermon-notes.wav");
+    foreach (var f in new[] { oldWav, newWav, unrelated }) File.WriteAllText(f, "x");
+    File.SetLastWriteTimeUtc(oldWav, DateTime.UtcNow.AddDays(-2)); File.SetLastWriteTimeUtc(unrelated, DateTime.UtcNow.AddDays(-2));
+    Check(AtomicFile.CleanupStaleTempAudio(temp, TimeSpan.FromDays(1)) == 1 && !File.Exists(oldWav) && File.Exists(newWav) && File.Exists(unrelated), "Only stale Sermon Studio temp audio removed");
 });
 
 Section("Library load, session backup and failed-save recovery", () =>

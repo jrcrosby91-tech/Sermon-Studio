@@ -52,6 +52,7 @@ public sealed partial class MainWindow : Window
         _autosave.Interval = TimeSpan.FromMilliseconds(900);
         _autosave.Tick += (_, _) => { _autosave.Stop(); if (_selectedId != null && !_loading) Save(); };
         AtomicFile.CleanupTemporaryFiles(_libraryPath, TimeSpan.FromHours(1));
+        _ = Task.Run(() => AtomicFile.CleanupStaleTempAudio(Path.GetTempPath(), TimeSpan.FromDays(1)));
         var loaded = LibraryFile.Load(_libraryPath);
         _library = loaded.Records;
         if (loaded.Failed)
@@ -71,6 +72,37 @@ public sealed partial class MainWindow : Window
     }
 
     internal static List<SermonRecord> NormalizeRecords(IEnumerable<SermonRecord?>? records)=>ArchiveRules.NormalizeRecords(records);
+
+    /// <summary>
+    /// Shows a dialog without risking a crash: WinUI throws if another ContentDialog is already open,
+    /// which would otherwise surface as an unhandled exception in an async event handler.
+    /// </summary>
+    private async Task<ContentDialogResult> ShowDialogAsync(ContentDialog dialog)
+    {
+        try
+        {
+            dialog.XamlRoot ??= ((FrameworkElement)Content).XamlRoot;
+            return await dialog.ShowAsync();
+        }
+        catch (Exception ex)
+        {
+            App.Log("Dialog unavailable: " + ex.GetType().Name);
+            Status.Text = "Close the open dialog first.";
+            return ContentDialogResult.None;
+        }
+    }
+
+    /// <summary>Called from the unhandled-exception handler: preserves unsaved editor content before the process ends.</summary>
+    internal void EmergencyRecovery()
+    {
+        try
+        {
+            if (_closeConfirmed) return;
+            if (_autosave.IsRunning && !_archiveReadFailed) { _autosave.Stop(); if (Save()) return; }
+            if (_lastSaveFailed || (_selectedId == null && HasDraftContent())) WriteRecoveryCopy();
+        }
+        catch (Exception ex) { App.Log("Emergency recovery failed: " + ex.GetType().Name); }
+    }
 
     private bool HasDraftContent() =>
         !string.IsNullOrWhiteSpace(Transcript.Text) || !string.IsNullOrWhiteSpace(Outline.Text)
@@ -107,7 +139,7 @@ public sealed partial class MainWindow : Window
                 CloseButtonText = "Keep working",
                 DefaultButton = ContentDialogButton.Primary,
             };
-            var result = await dialog.ShowAsync();
+            var result = await ShowDialogAsync(dialog);
             if (result == ContentDialogResult.None) return;
             if (result == ContentDialogResult.Primary)
             {
@@ -244,7 +276,7 @@ public sealed partial class MainWindow : Window
     private async Task<bool> ConfirmLeaveDraftAsync()
     {
         if (_selectedId != null || !HasDraftContent()) return true;
-        var choice = await new ContentDialog
+        var choice = await ShowDialogAsync(new ContentDialog
         {
             XamlRoot = ((FrameworkElement)Content).XamlRoot,
             Title = "Save this new sermon?",
@@ -253,7 +285,7 @@ public sealed partial class MainWindow : Window
             SecondaryButtonText = "Discard draft",
             CloseButtonText = "Cancel",
             DefaultButton = ContentDialogButton.Primary,
-        }.ShowAsync();
+        });
         if (choice == ContentDialogResult.None) return false;
         if (choice == ContentDialogResult.Primary) return Save();
         return true;
@@ -341,7 +373,7 @@ public sealed partial class MainWindow : Window
         if (sentences.Count == 0) { Status.Text = "Transcript has no complete sentences."; return; }
         if (!string.IsNullOrWhiteSpace(Outline.Text))
         {
-            var replace = await new ContentDialog { XamlRoot = ((FrameworkElement)Content).XamlRoot, Title = "Replace outline?", Content = "Generating a new outline replaces the current outline. Undo is available in the outline editor.", PrimaryButtonText = "Replace", CloseButtonText = "Cancel", DefaultButton = ContentDialogButton.Close }.ShowAsync();
+            var replace = await ShowDialogAsync(new ContentDialog { XamlRoot = ((FrameworkElement)Content).XamlRoot, Title = "Replace outline?", Content = "Generating a new outline replaces the current outline. Undo is available in the outline editor.", PrimaryButtonText = "Replace", CloseButtonText = "Cancel", DefaultButton = ContentDialogButton.Close });
             if (replace != ContentDialogResult.Primary) return;
         }
         var points = new List<string>();
@@ -444,7 +476,7 @@ public sealed partial class MainWindow : Window
         if(!FlushPendingSave()){Status.Text="The open sermon could not be saved. Retry Save sermon first.";return;}
         var input=new TextBox{Text=action=="Duplicate"?item.Title+" (copy)":item.Title};
         var dialog=new ContentDialog{XamlRoot=LibraryList.XamlRoot,Title=action+" sermon",Content=action=="Delete"?(object)("Delete “"+item.Title+"”? A recovery backup will be created first."):input,PrimaryButtonText=action,CloseButtonText="Cancel",DefaultButton=ContentDialogButton.Close};
-        if(await dialog.ShowAsync()!=ContentDialogResult.Primary)return;
+        if(await ShowDialogAsync(dialog)!=ContentDialogResult.Primary)return;
         if(action!="Delete"&&string.IsNullOrWhiteSpace(input.Text))return;
         if(!FlushPendingSave()){Status.Text="The open sermon could not be saved. Retry Save sermon first.";return;}
         if(!_library.Contains(item)){Status.Text="That sermon is no longer in the library.";RefreshLibrary();return;}

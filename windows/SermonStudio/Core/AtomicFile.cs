@@ -50,4 +50,27 @@ internal static class AtomicFile
         }
         return removed;
     }
+
+    /// <summary>
+    /// Removes temporary audio files left in the temp folder by an earlier crash (transcription WAVs can exceed 200 MB
+    /// for a two-hour recording). Only files matching Sermon Studio's own name patterns and older than <paramref name="olderThan"/> are removed.
+    /// </summary>
+    internal static int CleanupStaleTempAudio(string tempFolder, TimeSpan olderThan)
+    {
+        int removed = 0;
+        if (!Directory.Exists(tempFolder)) return 0;
+        // Wildcards alone are not precise ('?' may match zero characters), so confirm the exact generated name.
+        var generated = new System.Text.RegularExpressions.Regex(@"^sermon-(wave-)?[0-9a-f]{32}\.(wav|txt|srt|vtt|pcm)$");
+        IEnumerable<string> files;
+        try { files = Directory.EnumerateFiles(tempFolder, "sermon-*").ToList(); } catch { return 0; }
+        foreach (var file in files)
+        {
+            try
+            {
+                if (generated.IsMatch(Path.GetFileName(file)) && DateTime.UtcNow - File.GetLastWriteTimeUtc(file) >= olderThan) { File.Delete(file); removed++; }
+            }
+            catch { }
+        }
+        return removed;
+    }
 }

@@ -40,8 +40,8 @@ jobs:
       - name: Bundle local transcription engines
         env:
           GH_TOKEN: ${{ github.token }}
-          # Pin after the first verified run if the upstream release has no published digest.
-          WHISPER_SHA256: ''
+          # Verified against GitHub's published asset digest in CI run 45762586213.
+          WHISPER_SHA256: '0d2eca299c248f965bd0341bcb219db4b433c7f0c0ce2200d4df85765e8156a9'
         run: |
           $engine = "$env:GITHUB_WORKSPACE/windows-publish/engines"
           New-Item -ItemType Directory -Force "$engine/whisper", "$engine/ffmpeg" | Out-Null
@@ -53,9 +53,9 @@ jobs:
           $digest = ""
           try { $release = gh api "repos/$whisperRepo/releases/tags/$whisperTag" | ConvertFrom-Json; $digest = [string](($release.assets | Where-Object { $_.name -eq $whisperAsset }).digest) } catch { $digest = "" }
           Write-Host "$whisperAsset sha256=$whisperHash published=$digest"
-          if ($digest) { if ($digest.Trim() -ne "sha256:$whisperHash") { throw "whisper.cpp download does not match the published SHA-256 digest." } }
-          elseif ($env:WHISPER_SHA256) { if ($env:WHISPER_SHA256 -ne $whisperHash) { throw "whisper.cpp download does not match the pinned SHA-256." } }
-          else { Write-Host "::warning::No published or pinned SHA-256 for $whisperAsset; recorded $whisperHash" }
+          if ($env:WHISPER_SHA256 -and $env:WHISPER_SHA256 -ne $whisperHash) { throw "whisper.cpp download does not match the pinned SHA-256." }
+          if ($digest -and $digest.Trim() -ne "sha256:$whisperHash") { throw "whisper.cpp download does not match the published SHA-256 digest." }
+          if (!$digest -and !$env:WHISPER_SHA256) { throw "No published or pinned SHA-256 for $whisperAsset." }
           Expand-Archive "$env:RUNNER_TEMP/whisper.zip" "$engine/whisper" -Force
           $ffmpegUrl = "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip"
           Invoke-WebRequest $ffmpegUrl -OutFile "$env:RUNNER_TEMP/ffmpeg.zip" -MaximumRetryCount 3 -RetryIntervalSec 5

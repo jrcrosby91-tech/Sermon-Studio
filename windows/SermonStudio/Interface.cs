@@ -102,7 +102,7 @@ public sealed partial class MainWindow
             try{
                 var ffmpeg=FfmpegPath.Text.Trim();if(!File.Exists(ffmpeg))throw new Exception("FFmpeg is required for waveform generation.");
                 waveStatus.Text="Analyzing recording locally…";
-                await RunLocal(ffmpeg,new[]{"-y","-i",path,"-vn","-ac","1","-ar","8000","-f","s16le",temp},token);
+                await RunLocal(ffmpeg,new[]{"-nostdin","-hide_banner","-loglevel","error","-y","-i",path,"-vn","-ac","1","-ar","4000","-f","s16le",temp},token);
                 var result=await Task.Run(()=>{
                     using var stream=File.OpenRead(temp);using var reader=new BinaryReader(stream);long samples=stream.Length/2;var values=new double[160];if(samples==0)return Array.Empty<double>();
                     for(long i=0;i<samples;i++){if((i&8191)==0)token.ThrowIfCancellationRequested();int bucket=(int)Math.Min(159,i*160/samples);values[bucket]=Math.Max(values[bucket],Math.Abs((int)reader.ReadInt16())/32768.0);}

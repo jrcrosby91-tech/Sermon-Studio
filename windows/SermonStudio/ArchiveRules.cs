@@ -117,6 +117,8 @@ public sealed class SermonRecord
     public List<SermonSegment>? Segments {get;set;}
     public string Srt { get; set; } = "";
     public string Vtt { get; set; } = "";
+    /// <summary>Screen readers announce list and combo box items by ToString(); return the sermon title, not the type name.</summary>
+    public override string ToString() => LibraryHeading;
 }
 
 public sealed class SermonSegment

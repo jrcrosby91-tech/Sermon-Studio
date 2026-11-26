@@ -123,7 +123,7 @@ public sealed partial class MainWindow
         var a=new TextBox{Header="Original",Text=_showCleaned?_originalText:Transcript.Text,IsReadOnly=true,AcceptsReturn=true,TextWrapping=TextWrapping.Wrap,Height=350};
         var b=new TextBox{Header="Cleaned",Text=_showCleaned?Transcript.Text:_cleanedText,IsReadOnly=true,AcceptsReturn=true,TextWrapping=TextWrapping.Wrap,Height=350};
         grid.Children.Add(a);Grid.SetColumn(b,1);grid.Children.Add(b);
-        await new ContentDialog{XamlRoot=((FrameworkElement)Content).XamlRoot,Title="Compare transcripts",Content=grid,CloseButtonText="Close"}.ShowAsync();
+        await ShowDialogAsync(new ContentDialog{XamlRoot=((FrameworkElement)Content).XamlRoot,Title="Compare transcripts",Content=grid,CloseButtonText="Close"});
     }
     private async void Timestamps_Click(object sender,RoutedEventArgs e)
     {
@@ -135,7 +135,7 @@ public sealed partial class MainWindow
             list.Items.Add(button);
         }
         if(list.Items.Count==0)list.Items.Add(new TextBlock{Text="No timestamps available."});
-        await new ContentDialog{XamlRoot=((FrameworkElement)Content).XamlRoot,Title="Recording timestamps",Content=list,CloseButtonText="Close"}.ShowAsync();
+        await ShowDialogAsync(new ContentDialog{XamlRoot=((FrameworkElement)Content).XamlRoot,Title="Recording timestamps",Content=list,CloseButtonText="Close"});
     }
     private bool _checkingUpdates;
     private TextBlock? _updateNotice;
@@ -154,7 +154,7 @@ public sealed partial class MainWindow
             if(!UpdateRules.IsNewer(tag,installed)){if(_updateNotice!=null)_updateNotice.Text="Windows build is up to date.";if(interactive)Status.Text="Already up to date.";return;}
             if(_updateNotice!=null)_updateNotice.Text="Available Windows test build: "+tag;
             if(!interactive)return;
-            var result=await new ContentDialog{XamlRoot=((FrameworkElement)Content).XamlRoot,Title="Windows test release",Content=tag+" — install only when ready. Your local library will be retained.",PrimaryButtonText="Download and install",CloseButtonText="Close",DefaultButton=ContentDialogButton.Close}.ShowAsync();
+            var result=await ShowDialogAsync(new ContentDialog{XamlRoot=((FrameworkElement)Content).XamlRoot,Title="Windows test release",Content=tag+" — install only when ready. Your local library will be retained.",PrimaryButtonText="Download and install",CloseButtonText="Close",DefaultButton=ContentDialogButton.Close});
             if(result==ContentDialogResult.Primary){Status.Text="Downloading verified update…";await InstallReleaseAsync(release);}
         }catch(Exception ex){if(interactive)Status.Text="Update check failed: "+ex.Message;else if(_updateNotice!=null)_updateNotice.Text="Automatic update check unavailable.";}
         finally{_checkingUpdates=false;}

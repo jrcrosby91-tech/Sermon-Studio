@@ -55,7 +55,7 @@ public sealed partial class MainWindow
         }
         if (!string.IsNullOrWhiteSpace(Transcript.Text))
         {
-            var replace = await new ContentDialog { XamlRoot = ((FrameworkElement)Content).XamlRoot, Title = "Replace transcript?", Content = "Transcribing replaces the current transcript text for this sermon.", PrimaryButtonText = "Transcribe and replace", CloseButtonText = "Cancel", DefaultButton = ContentDialogButton.Close }.ShowAsync();
+            var replace = await ShowDialogAsync(new ContentDialog { XamlRoot = ((FrameworkElement)Content).XamlRoot, Title = "Replace transcript?", Content = "Transcribing replaces the current transcript text for this sermon.", PrimaryButtonText = "Transcribe and replace", CloseButtonText = "Cancel", DefaultButton = ContentDialogButton.Close });
             if (replace != ContentDialogResult.Primary || _transcription != null || _audioPath == null) return;
         }
         var audio = _audioPath;
