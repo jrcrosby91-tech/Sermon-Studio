@@ -58,9 +58,9 @@ public sealed partial class MainWindow
         ButtonFor(audioActions,"Import audio",ImportAudio_Click); ButtonFor(audioActions,"Transcribe",Transcribe_Click); ButtonFor(audioActions,"Cancel",Cancel_Click);
         var actions = Bar();
         ButtonFor(actions,"Clean",Clean_Click); ButtonFor(actions,"Original",Original_Click);
-        var search = new Microsoft.UI.Xaml.Controls.VariableSizedWrapGrid{Orientation=Orientation.Horizontal,ItemWidth=145,ItemHeight=76};
-        FindText = Field(search,"Find","",130);
-        Replacement = Field(search,"Replace with","",130);
+        var search = new Microsoft.UI.Xaml.Controls.VariableSizedWrapGrid{Orientation=Orientation.Horizontal,ItemWidth=145,ItemHeight=48};
+        FindText = Field(search,"","",130);FindText.PlaceholderText="Find text";
+        Replacement = Field(search,"","",130);Replacement.PlaceholderText="Replace with";
         ButtonFor(actions,"Scripture",Scripture_Click); ButtonFor(actions,"Compare",Compare_Click);
         TranscriptionProgress = new ProgressBar { Height = 4 }; tools.Children.Add(TranscriptionProgress);
         App.Log("Building interface: audio player");
@@ -151,7 +151,7 @@ public sealed partial class MainWindow
             bool show=timedScroll.Visibility!=Visibility.Visible;if(show)RenderTimestamps();
             timedScroll.Visibility=show?Visibility.Visible:Visibility.Collapsed;Transcript.Visibility=show?Visibility.Collapsed:Visibility.Visible;timedToggle.Content=show?"Edit transcript":"Timestamp view";
         };
-        var follow=new CheckBox{Content="Follow playback",IsChecked=true};search.Children.Add(follow);
+        var follow=new CheckBox{Content="Follow audio",IsChecked=true,MinWidth=0};search.Children.Add(follow);
         var audioTimer=DispatcherQueue.CreateTimer();audioTimer.Interval=TimeSpan.FromMilliseconds(250);
         audioTimer.Tick+=(_,_)=>{try{
             if(wavePath!=_audioPath){waveCancel?.Cancel();waveCancel?.Dispose();waveCancel=new();wavePath=_audioPath;peaks=Array.Empty<double>();DrawWave();if(wavePath!=null)_=LoadWave(wavePath,waveCancel.Token);else waveStatus.Text="Import audio to display its waveform";}
@@ -169,7 +169,7 @@ public sealed partial class MainWindow
         var previewToggle=new Button{Content="Formatted view",HorizontalAlignment=HorizontalAlignment.Right};outlinePanel.Children.Add(previewToggle);
         outlinePanel.RowDefinitions.Insert(1,new RowDefinition{Height=GridLength.Auto});
         Grid.SetRow(Outline,2);Grid.SetRow(previewScroll,2);
-        var formatBar=new VariableSizedWrapGrid{Orientation=Orientation.Horizontal,ItemWidth=115,ItemHeight=42};
+        var formatBar=new VariableSizedWrapGrid{Orientation=Orientation.Horizontal,ItemWidth=135,ItemHeight=44};
         Grid.SetRow(formatBar,1);outlinePanel.Children.Add(formatBar);
         var rich=new RichEditBox{FontFamily=new FontFamily("Georgia"),FontSize=17,TextWrapping=TextWrapping.Wrap,Visibility=Visibility.Collapsed};
         Grid.SetRow(rich,2);outlinePanel.Children.Add(rich);
@@ -184,8 +184,8 @@ public sealed partial class MainWindow
                     if(heading||sub){size=sub?19:23;line=line.TrimStart('#',' ');}
                     if(quote)line="❯ "+line.Substring(2);
                     if(line.StartsWith("- "))line="• "+line.Substring(2);
-                    foreach(var part in System.Text.RegularExpressions.Regex.Split(line,@"(\*\*[^*]+\*\*|\*[^*]+\*)")){
-                        int start=plain.Length;bool bold=heading||sub||part.StartsWith("**")&&part.EndsWith("**");bool italic=quote||part.StartsWith("*")&&!part.StartsWith("**")&&part.EndsWith("*");
+                    foreach(var part in System.Text.RegularExpressions.Regex.Split(line,@"(\*\*\*[^*]+\*\*\*|\*\*[^*]+\*\*|\*[^*]+\*)")){
+                        int start=plain.Length;bool bold=heading||sub||part.StartsWith("**")&&part.EndsWith("**");bool italic=quote||part.StartsWith("***")&&part.EndsWith("***")||part.StartsWith("*")&&!part.StartsWith("**")&&part.EndsWith("*");
                         plain.Append(part.Trim('*'));if(plain.Length>start)spans.Add((start,plain.Length,bold,italic,size));
                     }
                     plain.Append('\r');
@@ -284,12 +284,12 @@ public sealed partial class MainWindow
                 var text=new TextBlock{TextWrapping=TextWrapping.Wrap,FontFamily=new FontFamily("Georgia"),FontSize=heading?(line.StartsWith("###")?19:23):17,IsTextSelectionEnabled=true};
                 if(heading||scripture){text.Foreground=gold;if(heading)text.FontWeight=Microsoft.UI.Text.FontWeights.SemiBold;}
                 if(bullet||scripture)text.Margin=new Thickness(18,0,0,0);
-                foreach(var part in System.Text.RegularExpressions.Regex.Split(content,@"(\*\*[^*]+\*\*|\*[^*]+\*)")){
+                foreach(var part in System.Text.RegularExpressions.Regex.Split(content,@"(\*\*\*[^*]+\*\*\*|\*\*[^*]+\*\*|\*[^*]+\*)")){
                     if(part.Length==0)continue;
                     if(scripturePattern.IsMatch(part)){AddScriptureRuns(text,part.Trim('*'));continue;}
                     var run=new Microsoft.UI.Xaml.Documents.Run{Text=part.Trim('*')};
                     if(part.StartsWith("**")&&part.EndsWith("**"))run.FontWeight=Microsoft.UI.Text.FontWeights.Bold;
-                    else if(part.StartsWith("*")&&part.EndsWith("*"))run.FontStyle=Windows.UI.Text.FontStyle.Italic;
+                    if((part.StartsWith("***")||!part.StartsWith("**"))&&part.StartsWith("*")&&part.EndsWith("*"))run.FontStyle=Windows.UI.Text.FontStyle.Italic;
                     text.Inlines.Add(run);
                 }
                 if(scripture)text.FontStyle=Windows.UI.Text.FontStyle.Italic;
@@ -317,7 +317,7 @@ public sealed partial class MainWindow
         void EditMode(){timedScroll.Visibility=Visibility.Collapsed;Transcript.Visibility=Visibility.Visible;timedToggle.Content="Timestamp view";}
         ButtonFor(search,"Undo",(_,_)=>{EditMode();if(Transcript.CanUndo)Transcript.Undo();});ButtonFor(search,"Redo",(_,_)=>{EditMode();if(Transcript.CanRedo)Transcript.Redo();});
         var matchCount=new TextBlock{VerticalAlignment=VerticalAlignment.Bottom};search.Children.Add(matchCount);
-        var caseSensitive=new CheckBox{Content="Match case"};search.Children.Add(caseSensitive);
+        var caseSensitive=new CheckBox{Content="Match case",MinWidth=0};search.Children.Add(caseSensitive);
         StringComparison Comparison()=>caseSensitive.IsChecked==true?StringComparison.Ordinal:StringComparison.OrdinalIgnoreCase;
         void FindMatch(bool previous){EditMode();var q=FindText.Text;var body=Transcript.Text;if(string.IsNullOrEmpty(q))return;int index=-1;if(previous){int start=Transcript.SelectionStart-1;if(start>=0&&body.Length>0)index=body.LastIndexOf(q,Math.Min(start,body.Length-1),Comparison());if(index<0)index=body.LastIndexOf(q,Comparison());}else{index=body.IndexOf(q,Math.Min(body.Length,Transcript.SelectionStart+Transcript.SelectionLength),Comparison());if(index<0)index=body.IndexOf(q,Comparison());}if(index>=0){Transcript.Focus(FocusState.Programmatic);Transcript.Select(index,q.Length);Status.Text="Passage found.";}else Status.Text="Phrase not found.";}
         ButtonFor(search,"Previous",(_,_)=>FindMatch(true));ButtonFor(search,"Next",(_,_)=>FindMatch(false));
