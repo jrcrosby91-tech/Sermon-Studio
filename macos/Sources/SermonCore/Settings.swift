@@ -158,7 +158,7 @@ public final class SettingsStore {
     public static func isValidOllamaModel(_ model: String) -> Bool {
         let trimmed = model.trimmingCharacters(in: .whitespaces)
         guard !trimmed.isEmpty, trimmed.count <= 120, !trimmed.lowercased().contains("cloud") else { return false }
-        return trimmed.range(of: "^[a-zA-Z0-9_.-]+(/[a-zA-Z0-9_.-]+)?(:[a-zA-Z0-9_.-]+)?$", options: .regularExpression) != nil
+        return trimmed.range(of: "^[a-zA-Z0-9_.-]+(/[a-zA-Z0-9_.-]+){0,2}(:[a-zA-Z0-9_.-]+)?$", options: .regularExpression) != nil
     }
 }
 

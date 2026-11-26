@@ -28,7 +28,7 @@ jobs:
         run: swift build --build-tests 2>&1 | tee build.log; exit ${PIPESTATUS[0]}
       - name: Run SermonCore tests
         working-directory: macos
-        run: swift test --skip-build --parallel 2>&1 | tee test.log; exit ${PIPESTATUS[0]}
+        run: swift test --skip-build 2>&1 | tee test.log; exit ${PIPESTATUS[0]}
       - uses: actions/upload-artifact@v4
         if: always()
         with:
