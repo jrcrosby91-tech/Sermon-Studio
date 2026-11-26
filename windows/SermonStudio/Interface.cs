@@ -47,6 +47,8 @@ public sealed partial class MainWindow
         SermonTitle = Field(top,"Sermon title","Untitled sermon",240);
         _sermonDate=new CalendarDatePicker{Header="Sermon date",Date=DateTimeOffset.Now,Width=155};top.Children.Add(_sermonDate);
         _speaker=Field(top,"Speaker","",150);_primaryScripture=Field(top,"Primary scripture","",170);
+        _series=Field(top,"Series","",150);_series.TextChanged+=Editor_TextChanged;
+        _collection=Field(top,"Collection","",150);_collection.TextChanged+=Editor_TextChanged;
         _sermonTags=Field(top,"Tags","",160);_sermonTags.TextChanged+=Editor_TextChanged;
         _sermonFavorite=new CheckBox{Content="Favorite",VerticalAlignment=VerticalAlignment.Bottom};top.Children.Add(_sermonFavorite);_sermonFavorite.Checked+=(_,_)=>Editor_TextChanged(_sermonFavorite,null!);_sermonFavorite.Unchecked+=(_,_)=>Editor_TextChanged(_sermonFavorite,null!);
         _speaker.TextChanged+=Editor_TextChanged;_primaryScripture.TextChanged+=Editor_TextChanged;_sermonDate.DateChanged+=(_,_)=>Editor_TextChanged(_sermonDate,null!);
@@ -336,6 +338,8 @@ public sealed partial class MainWindow
         var scroll = new ScrollViewer { Content = Card(side) }; Grid.SetColumn(scroll,2); workspace.Children.Add(scroll);
         side.Children.Add(new TextBlock { Text = "Sermon library", FontSize = 20 });
         var libraryHint=new TextBlock{Text="Select a saved sermon to open it. New sermons appear here after you save.",TextWrapping=TextWrapping.Wrap,Opacity=.75};side.Children.Add(libraryHint);
+        _libraryStats=new TextBlock{TextWrapping=TextWrapping.Wrap,FontSize=17};side.Children.Add(_libraryStats);
+        _recentSermons=new ComboBox{Header="Recently opened sermons",DisplayMemberPath="LibraryHeading",HorizontalAlignment=HorizontalAlignment.Stretch};side.Children.Add(_recentSermons);
         _librarySearch=new TextBox{PlaceholderText="Search sermons, scripture, tags…"};side.Children.Add(_librarySearch);
         _librarySort=new ComboBox{Header="Sort by",HorizontalAlignment=HorizontalAlignment.Stretch};foreach(var label in new[]{"Newest sermon","Oldest sermon","Title A–Z","Recently edited"})_librarySort.Items.Add(label);_librarySort.SelectedIndex=0;side.Children.Add(_librarySort);
         _libraryFavorites=new CheckBox{Content="Favorites only"};side.Children.Add(_libraryFavorites);
@@ -344,7 +348,19 @@ public sealed partial class MainWindow
         LibraryList.ItemTemplate=(DataTemplate)Microsoft.UI.Xaml.Markup.XamlReader.Load("""<DataTemplate xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"><Border Padding="12" Margin="0,4" CornerRadius="8" BorderThickness="1" BorderBrush="{ThemeResource SystemControlForegroundBaseLowBrush}"><StackPanel Spacing="5"><TextBlock Text="{Binding LibraryHeading}" FontSize="19" FontWeight="SemiBold" TextWrapping="Wrap"/><TextBlock Text="{Binding LibraryDetails}" Opacity="0.8" TextWrapping="Wrap"/><TextBlock Text="{Binding LibraryPreview}" Opacity="0.7" TextWrapping="Wrap" MaxLines="3"/></StackPanel></Border></DataTemplate>""");
         LibraryList.SelectionChanged+=Library_SelectionChanged;side.Children.Add(LibraryList);
         _librarySearch.TextChanged+=(_,_)=>RefreshLibrary();_librarySort.SelectionChanged+=(_,_)=>RefreshLibrary();_libraryFavorites.Checked+=(_,_)=>RefreshLibrary();_libraryFavorites.Unchecked+=(_,_)=>RefreshLibrary();
+        var filters=new StackPanel{Spacing=6};
+        _filterSpeaker=Field(filters,"Speaker","",220);_filterTag=Field(filters,"Tag","",220);_filterSeries=Field(filters,"Series","",220);_filterCollection=Field(filters,"Collection","",220);
+        _filterFrom=new CalendarDatePicker{Header="From date"};_filterTo=new CalendarDatePicker{Header="Through date"};filters.Children.Add(_filterFrom);filters.Children.Add(_filterTo);
+        foreach(var field in new[]{_filterSpeaker,_filterTag,_filterSeries,_filterCollection})field.TextChanged+=(_,_)=>RefreshLibrary();
+        _filterFrom.DateChanged+=(_,_)=>RefreshLibrary();_filterTo.DateChanged+=(_,_)=>RefreshLibrary();
+        ButtonFor(filters,"Clear filters",(_,_)=>{_filterSpeaker.Text=_filterTag.Text=_filterSeries.Text=_filterCollection.Text=_librarySearch.Text="";_filterFrom.Date=null;_filterTo.Date=null;_libraryFavorites.IsChecked=false;RefreshLibrary();});
+        var filterPanel=new Expander{Header="Advanced filters",Content=filters,HorizontalAlignment=HorizontalAlignment.Stretch};side.Children.Insert(side.Children.IndexOf(LibraryList),filterPanel);
         Action? openLibrarySermon=null;
+        _recentSermons.SelectionChanged+=(_,_)=>{if(_loading||_recentSermons.SelectedItem is not SermonRecord record)return;_librarySearch.Text="";_filterSpeaker.Text=_filterTag.Text=_filterSeries.Text=_filterCollection.Text="";_filterFrom.Date=null;_filterTo.Date=null;_libraryFavorites.IsChecked=false;RefreshLibrary();LibraryList.SelectedItem=record;openLibrarySermon?.Invoke();};
+        var manage=new StackPanel{Spacing=6};side.Children.Add(manage);
+        ButtonFor(manage,"Rename selected",(_,_)=>ManageSermon("Rename"));ButtonFor(manage,"Duplicate selected",(_,_)=>ManageSermon("Duplicate"));ButtonFor(manage,"Delete selected",(_,_)=>ManageSermon("Delete"));
+        var archivePanel=new StackPanel{Spacing=6};ButtonFor(archivePanel,"Export all sermons",(_,_)=>BulkArchive(false));ButtonFor(archivePanel,"Export filtered sermons",(_,_)=>BulkArchive(true));ButtonFor(archivePanel,"Backup library",Backup_Click);ButtonFor(archivePanel,"Restore library",Restore_Click);
+        side.Children.Add(new Expander{Header="Archive and backup",Content=archivePanel,HorizontalAlignment=HorizontalAlignment.Stretch});
         ButtonFor(side,"Open selected sermon",(_,_)=>{if(LibraryList.SelectedItem is SermonRecord)openLibrarySermon?.Invoke();else Status.Text="Select a sermon first.";});
         var settings=new StackPanel{Spacing=12};
         var settingsScroll=new ScrollViewer{Content=Card(settings),Visibility=Visibility.Collapsed};Grid.SetColumn(settingsScroll,2);workspace.Children.Add(settingsScroll);
