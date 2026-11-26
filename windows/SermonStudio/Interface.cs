@@ -59,8 +59,8 @@ public sealed partial class MainWindow
         var actions = Bar();
         ButtonFor(actions,"Clean",Clean_Click); ButtonFor(actions,"Original",Original_Click);
         var search = new StackPanel{Orientation=Orientation.Horizontal,Spacing=8};
-        FindText = Field(search,"Find","",130); ButtonFor(search,"Find",(_,_)=>{Transcript.Visibility=Visibility.Visible;Find_Click(this,null!);});
-        Replacement = Field(actions,"Replace with","",130); ButtonFor(actions,"Replace all",Replace_Click);
+        FindText = Field(search,"Find","",130);
+        Replacement = Field(search,"Replace with","",130);
         ButtonFor(actions,"Scripture",Scripture_Click); ButtonFor(actions,"Compare",Compare_Click);
         TranscriptionProgress = new ProgressBar { Height = 4 }; tools.Children.Add(TranscriptionProgress);
         App.Log("Building interface: audio player");
@@ -77,6 +77,31 @@ public sealed partial class MainWindow
         playback.Children.Add(new ScrollViewer{Content=audioControls,HorizontalScrollMode=ScrollMode.Enabled,HorizontalScrollBarVisibility=ScrollBarVisibility.Auto,VerticalScrollMode=ScrollMode.Disabled});
         var seek=new Slider{Minimum=0,Maximum=1,IsEnabled=false};playback.Children.Add(seek);bool updatingSeek=false;
         seek.ValueChanged+=(_,e)=>{if(!updatingSeek&&_player!=null&&seek.IsEnabled)_player.PlaybackSession.Position=TimeSpan.FromSeconds(e.NewValue);};
+        var wave=new Canvas{Height=54,Background=Brush(43,55,70)};
+        var waveStatus=new TextBlock{Text="Import audio to display its waveform",FontSize=12};
+        playback.Children.Add(wave);playback.Children.Add(waveStatus);
+        double[] peaks=Array.Empty<double>();string? wavePath=null;CancellationTokenSource? waveCancel=null;
+        void DrawWave(){
+            wave.Children.Clear();double width=wave.ActualWidth;if(width<=0||peaks.Length==0)return;
+            double fraction=0;try{if(_player!=null&&_player.PlaybackSession.NaturalDuration.TotalSeconds>0)fraction=_player.PlaybackSession.Position.TotalSeconds/_player.PlaybackSession.NaturalDuration.TotalSeconds;}catch{}
+            for(int i=0;i<peaks.Length;i++){double h=Math.Max(1,peaks[i]*48);var bar=new Microsoft.UI.Xaml.Shapes.Rectangle{Width=Math.Max(.5,width/peaks.Length-1),Height=h,Fill=i/(double)peaks.Length<=fraction?gold:Brush(125,145,165)};Canvas.SetLeft(bar,i*width/peaks.Length);Canvas.SetTop(bar,(54-h)/2);wave.Children.Add(bar);}
+        }
+        wave.SizeChanged+=(_,_)=>DrawWave();
+        wave.PointerPressed+=(_,e)=>{if(_player!=null&&wave.ActualWidth>0&&peaks.Length>0){var fraction=Math.Clamp(e.GetCurrentPoint(wave).Position.X/wave.ActualWidth,0,1);_player.PlaybackSession.Position=TimeSpan.FromSeconds(fraction*_player.PlaybackSession.NaturalDuration.TotalSeconds);}};
+        async Task LoadWave(string path,CancellationToken token){
+            var temp=Path.Combine(Path.GetTempPath(),"sermon-wave-"+Guid.NewGuid().ToString("N")+".pcm");
+            try{
+                var ffmpeg=FfmpegPath.Text.Trim();if(!File.Exists(ffmpeg))throw new Exception("FFmpeg is required for waveform generation.");
+                waveStatus.Text="Analyzing recording locally…";
+                await RunLocal(ffmpeg,new[]{"-y","-i",path,"-vn","-ac","1","-ar","8000","-f","s16le",temp},token);
+                var result=await Task.Run(()=>{
+                    using var stream=File.OpenRead(temp);using var reader=new BinaryReader(stream);long samples=stream.Length/2;var values=new double[160];if(samples==0)return Array.Empty<double>();
+                    for(long i=0;i<samples;i++){if((i&8191)==0)token.ThrowIfCancellationRequested();int bucket=(int)Math.Min(159,i*160/samples);values[bucket]=Math.Max(values[bucket],Math.Abs((int)reader.ReadInt16())/32768.0);}
+                    return values;
+                },token);
+                if(!token.IsCancellationRequested&&wavePath==path){peaks=result;waveStatus.Text="Recording waveform · click to seek";DrawWave();}
+            }catch(OperationCanceledException){}catch(Exception ex){if(!token.IsCancellationRequested&&wavePath==path)waveStatus.Text="Waveform unavailable: "+ex.Message;}finally{try{File.Delete(temp);}catch{}}
+        }
         App.Log("Building interface: editors");
         var workspace = new Grid { ColumnSpacing = 10 };
         workspace.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1,GridUnitType.Star) });
@@ -129,15 +154,17 @@ public sealed partial class MainWindow
         var follow=new CheckBox{Content="Follow playback",IsChecked=true};search.Children.Add(follow);
         var audioTimer=DispatcherQueue.CreateTimer();audioTimer.Interval=TimeSpan.FromMilliseconds(250);
         audioTimer.Tick+=(_,_)=>{try{
+            if(wavePath!=_audioPath){waveCancel?.Cancel();waveCancel?.Dispose();waveCancel=new();wavePath=_audioPath;peaks=Array.Empty<double>();DrawWave();if(wavePath!=null)_=LoadWave(wavePath,waveCancel.Token);else waveStatus.Text="Import audio to display its waveform";}
             if(timedScroll.Visibility==Visibility.Visible&&renderedSrt!=_srt)RenderTimestamps();
             if(_player==null){seek.IsEnabled=false;audioTime.Text="No recording loaded";if(activeRow!=null){activeRow.Background=null;activeRow.BorderBrush=null;activeRow=null;}return;}
             var session=_player.PlaybackSession;var duration=session.NaturalDuration.TotalSeconds;var position=session.Position.TotalSeconds;
             updatingSeek=true;seek.Maximum=Math.Max(1,duration);seek.Value=Math.Clamp(position,0,seek.Maximum);seek.IsEnabled=duration>0;updatingSeek=false;
             audioTime.Text=session.Position.ToString(@"hh\:mm\:ss")+" / "+session.NaturalDuration.ToString(@"hh\:mm\:ss");
+            DrawWave();
             if(timedScroll.Visibility!=Visibility.Visible)return;
             var next=segmentRows.FirstOrDefault(x=>position>=x.Start&&position<x.End).Row;
             if(next!=activeRow){if(activeRow!=null){activeRow.Background=null;activeRow.BorderBrush=null;}activeRow=next;if(next!=null){next.Background=new SolidColorBrush(Windows.UI.Color.FromArgb(45,190,151,69));next.BorderBrush=gold;if(follow.IsChecked==true)next.StartBringIntoView();}}
-        }catch{updatingSeek=false;}};audioTimer.Start();Closed+=(_,_)=>audioTimer.Stop();
+        }catch{updatingSeek=false;}};audioTimer.Start();Closed+=(_,_)=>{audioTimer.Stop();waveCancel?.Cancel();};
         var previewToggle=new Button{Content="Formatted view",HorizontalAlignment=HorizontalAlignment.Right};outlinePanel.Children.Add(previewToggle);
         previewToggle.Click+=(_,_)=>{
             bool show=previewScroll.Visibility!=Visibility.Visible;preview.Children.Clear();
@@ -163,11 +190,19 @@ public sealed partial class MainWindow
             workspace.ColumnDefinitions[1].Width=new GridLength(1-split,GridUnitType.Star);
         };
         divider.ManipulationCompleted+=(_,_)=>RememberWorkspace();
-        ButtonFor(search,"Undo",(_,_)=>{if(Transcript.CanUndo)Transcript.Undo();});ButtonFor(search,"Redo",(_,_)=>{if(Transcript.CanRedo)Transcript.Redo();});
+        void EditMode(){timedScroll.Visibility=Visibility.Collapsed;Transcript.Visibility=Visibility.Visible;timedToggle.Content="Timestamp view";}
+        ButtonFor(search,"Undo",(_,_)=>{EditMode();if(Transcript.CanUndo)Transcript.Undo();});ButtonFor(search,"Redo",(_,_)=>{EditMode();if(Transcript.CanRedo)Transcript.Redo();});
         var matchCount=new TextBlock{VerticalAlignment=VerticalAlignment.Bottom};search.Children.Add(matchCount);
-        void CountMatches(){var q=FindText.Text;matchCount.Text=string.IsNullOrWhiteSpace(q)?"":System.Text.RegularExpressions.Regex.Matches(Transcript.Text,System.Text.RegularExpressions.Regex.Escape(q),System.Text.RegularExpressions.RegexOptions.IgnoreCase).Count+" matches";}
+        var caseSensitive=new CheckBox{Content="Match case"};search.Children.Add(caseSensitive);
+        StringComparison Comparison()=>caseSensitive.IsChecked==true?StringComparison.Ordinal:StringComparison.OrdinalIgnoreCase;
+        void FindMatch(bool previous){EditMode();var q=FindText.Text;var body=Transcript.Text;if(string.IsNullOrEmpty(q))return;int index=-1;if(previous){int start=Transcript.SelectionStart-1;if(start>=0&&body.Length>0)index=body.LastIndexOf(q,Math.Min(start,body.Length-1),Comparison());if(index<0)index=body.LastIndexOf(q,Comparison());}else{index=body.IndexOf(q,Math.Min(body.Length,Transcript.SelectionStart+Transcript.SelectionLength),Comparison());if(index<0)index=body.IndexOf(q,Comparison());}if(index>=0){Transcript.Focus(FocusState.Programmatic);Transcript.Select(index,q.Length);Status.Text="Passage found.";}else Status.Text="Phrase not found.";}
+        ButtonFor(search,"Previous",(_,_)=>FindMatch(true));ButtonFor(search,"Next",(_,_)=>FindMatch(false));
+        ButtonFor(search,"Replace",(_,_)=>{EditMode();if(!string.IsNullOrEmpty(FindText.Text)&&string.Equals(Transcript.SelectedText,FindText.Text,Comparison())){int start=Transcript.SelectionStart;Transcript.SelectedText=Replacement.Text;Transcript.Select(start+Replacement.Text.Length,0);}FindMatch(false);});
+        ButtonFor(search,"Replace all",(_,_)=>{EditMode();if(!string.IsNullOrEmpty(FindText.Text)){Transcript.Text=Transcript.Text.Replace(FindText.Text,Replacement.Text,Comparison());Status.Text="Matching passages replaced.";}});
+        void CountMatches(){var q=FindText.Text;matchCount.Text=string.IsNullOrWhiteSpace(q)?"":System.Text.RegularExpressions.Regex.Matches(Transcript.Text,System.Text.RegularExpressions.Regex.Escape(q),(caseSensitive.IsChecked==true?System.Text.RegularExpressions.RegexOptions.None:System.Text.RegularExpressions.RegexOptions.IgnoreCase)).Count+" matches";}
+        caseSensitive.Checked+=(_,_)=>CountMatches();caseSensitive.Unchecked+=(_,_)=>CountMatches();
         FindText.TextChanged+=(_,_)=>CountMatches();Transcript.TextChanged+=(_,_)=>CountMatches();
-        FindText.KeyDown+=(_,e)=>{if(e.Key==Windows.System.VirtualKey.Enter){if(timedScroll.Visibility==Visibility.Visible){timedScroll.Visibility=Visibility.Collapsed;Transcript.Visibility=Visibility.Visible;timedToggle.Content="Timestamp view";}Find_Click(this,null!);e.Handled=true;}};
+        FindText.KeyDown+=(_,e)=>{if(e.Key==Windows.System.VirtualKey.Enter){if(timedScroll.Visibility==Visibility.Visible){timedScroll.Visibility=Visibility.Collapsed;Transcript.Visibility=Visibility.Visible;timedToggle.Content="Timestamp view";}FindMatch(false);e.Handled=true;}};
         Transcript.TextChanged += Editor_TextChanged; Outline.TextChanged += Outline_TextChanged; SermonTitle.TextChanged += Editor_TextChanged;
         App.Log("Building interface: library");
         var side = new StackPanel { Spacing = 8 };
