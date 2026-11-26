@@ -144,8 +144,9 @@ public sealed partial class MainWindow
     {
         XNamespace w="http://schemas.openxmlformats.org/wordprocessingml/2006/main";
         XNamespace xml=XNamespace.Xml;
-        var doc=new XDocument(new XElement(w+"document",new XAttribute(XNamespace.Xmlns+"w",w),new XElement(w+"body",
-            (title+"\n"+body).Split('\n').Select(line=>new XElement(w+"p",new XElement(w+"r",new XElement(w+"t",new XAttribute(xml+"space","preserve"),line.TrimEnd('\r'))))))));
+        var paragraphs=(title+"\n"+body).Split('\n').Select(line =>
+            new XElement(w+"p", new XElement(w+"r", new XElement(w+"t", new XAttribute(xml+"space","preserve"), line.TrimEnd('\r')))));
+        var doc=new XDocument(new XElement(w+"document",new XAttribute(XNamespace.Xmlns+"w",w),new XElement(w+"body",paragraphs)));
         using var zip=new ZipArchive(File.Create(path),ZipArchiveMode.Create);
         void Add(string name,string data){using var writer=new StreamWriter(zip.CreateEntry(name).Open(),new UTF8Encoding(false));writer.Write(data);}
         Add("[Content_Types].xml","<Types xmlns=\"http://schemas.openxmlformats.org/package/2006/content-types\"><Default Extension=\"rels\" ContentType=\"application/vnd.openxmlformats-package.relationships+xml\"/><Default Extension=\"xml\" ContentType=\"application/xml\"/><Override PartName=\"/word/document.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml\"/></Types>");
