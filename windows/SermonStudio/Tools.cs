@@ -10,6 +10,10 @@ public sealed partial class MainWindow
     private readonly string _modelFolder = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),"SermonStudio","models");
     private ComboBox? _modelChoice;
     private CancellationTokenSource? _modelDownload;
+    private TextBlock? _modelStatus;
+    private ProgressBar? _modelProgress;
+    private Button? _downloadButton,_cancelDownloadButton;
+    private void RefreshModelStatus(){if(_modelChoice?.SelectedItem is not string model||_modelStatus==null)return;var path=Path.Combine(_modelFolder,"ggml-"+model+".bin");_modelStatus.Text=File.Exists(path)?$"Downloaded · {new FileInfo(path).Length/1048576:N0} MB on disk":"Not downloaded · internet required for initial setup";if(_downloadButton!=null)_downloadButton.IsEnabled=_modelDownload==null&&!File.Exists(path);if(_cancelDownloadButton!=null)_cancelDownloadButton.IsEnabled=_modelDownload!=null;}
     private void ConfigureTools(StackPanel panel)
     {
         var bundled = Path.Combine(AppContext.BaseDirectory,"engines");
@@ -17,7 +21,7 @@ public sealed partial class MainWindow
             WhisperPath.Text = Directory.EnumerateFiles(bundled,"whisper-cli.exe",SearchOption.AllDirectories).FirstOrDefault() ?? "";
             FfmpegPath.Text = Directory.EnumerateFiles(bundled,"ffmpeg.exe",SearchOption.AllDirectories).FirstOrDefault() ?? "";
         }
-        _modelChoice = new ComboBox { Header="Offline model", Width=210 };
+        _modelChoice = new ComboBox { Header="Offline model", HorizontalAlignment=HorizontalAlignment.Stretch };
         foreach(var name in new[]{"tiny.en","base.en","small.en","medium.en","large-v3-turbo"}) _modelChoice.Items.Add(name);
         var preference=Path.Combine(Path.GetDirectoryName(_modelFolder)!,"offline-model.txt");
         _modelChoice.SelectedIndex=1;
@@ -37,16 +41,15 @@ public sealed partial class MainWindow
                 File.Move(preference+".tmp",preference,true);
             }catch(Exception ex){App.Log("Save offline model preference: "+ex.Message);Status.Text="Could not save model preference: "+ex.Message;}
         }
-        _modelChoice.SelectionChanged += (_,_)=>SelectModel(true);
+        _modelChoice.SelectionChanged += (_,_)=>{SelectModel(true);RefreshModelStatus();};
         SelectModel(false); panel.Children.Add(_modelChoice);
-        void Add(string label,RoutedEventHandler handler) { var b=new Button{Content=label}; b.Click+=handler; panel.Children.Add(b); }
-        Add("Download selected model",DownloadModel_Click);
-        Add("Cancel model download",(_,_)=>_modelDownload?.Cancel());
-        Add("Compare transcripts",Compare_Click);
-        Add("Show timestamps",Timestamps_Click);
-        Add("Check for Windows updates",Updates_Click);
-        Add("Export Mac-compatible archive",MacArchive_Click);
-        Add("Print / Save PDF",Pdf_Click);
+        _modelStatus=new TextBlock{TextWrapping=TextWrapping.Wrap};panel.Children.Add(_modelStatus);
+        _modelProgress=new ProgressBar{Minimum=0,Maximum=100,Visibility=Visibility.Collapsed};panel.Children.Add(_modelProgress);
+        var buttons=new ResponsiveToolbar();panel.Children.Add(buttons);
+        _downloadButton=new Button{Content="Download model"};_downloadButton.Click+=DownloadModel_Click;buttons.Children.Add(_downloadButton);
+        _cancelDownloadButton=new Button{Content="Cancel download"};_cancelDownloadButton.Click+=(_,_)=>_modelDownload?.Cancel();buttons.Children.Add(_cancelDownloadButton);
+        var open=new Button{Content="Open models folder"};open.Click+=(_,_)=>{try{Directory.CreateDirectory(_modelFolder);Process.Start(new ProcessStartInfo(_modelFolder){UseShellExecute=true});}catch(Exception ex){Status.Text=ex.Message;}};buttons.Children.Add(open);
+        RefreshModelStatus();
     }
     private async void DownloadModel_Click(object sender,RoutedEventArgs e)
     {
@@ -56,6 +59,7 @@ public sealed partial class MainWindow
         if(File.Exists(path)){WhisperModel.Text=path;Status.Text="Model already downloaded.";return;}
         _modelDownload=new CancellationTokenSource();
         var token=_modelDownload.Token;
+        RefreshModelStatus();if(_modelProgress!=null){_modelProgress.Visibility=Visibility.Visible;_modelProgress.IsIndeterminate=true;}
         try {
             using var client=new HttpClient{Timeout=Timeout.InfiniteTimeSpan};
             using var response=await client.GetAsync("https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-"+model+".bin",HttpCompletionOption.ResponseHeadersRead,token);
@@ -65,14 +69,14 @@ public sealed partial class MainWindow
                 var buffer=new byte[131072]; long total=0; int n;
                 while((n=await source.ReadAsync(buffer.AsMemory(),token))>0){
                     await dest.WriteAsync(buffer.AsMemory(0,n),token); total+=n;
-                    Status.Text=$"Downloading {model}: {total/1048576} MB";
+                    Status.Text=$"Downloading {model}: {total/1048576} MB";if(_modelStatus!=null)_modelStatus.Text=Status.Text;if(_modelProgress!=null&&response.Content.Headers.ContentLength is long length&&length>0){_modelProgress.IsIndeterminate=false;_modelProgress.Value=Math.Min(100,100.0*total/length);}
                 }
                 if(response.Content.Headers.ContentLength is long expected && total!=expected) throw new IOException("Incomplete download.");
             }
             File.Move(path+".part",path,true); if(Equals(_modelChoice?.SelectedItem,model))WhisperModel.Text=path; Status.Text=model+" downloaded and ready for offline transcription.";
         } catch(OperationCanceledException){Status.Text="Model download canceled.";}
         catch(Exception ex){Status.Text="Download failed: "+ex.Message;}
-        finally{_modelDownload.Dispose();_modelDownload=null;try{File.Delete(path+".part");}catch{}}
+        finally{_modelDownload.Dispose();_modelDownload=null;try{File.Delete(path+".part");}catch{}if(_modelProgress!=null)_modelProgress.Visibility=Visibility.Collapsed;RefreshModelStatus();}
     }
     private async void Compare_Click(object sender,RoutedEventArgs e)
     {
