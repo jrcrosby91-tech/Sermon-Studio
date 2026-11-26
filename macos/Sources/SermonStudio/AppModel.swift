@@ -102,6 +102,10 @@ enum SaveState: Equatable {
             saveState = .failed("Library unreadable")
         }
         Task.detached(priority: .background) { TranscriptionService.cleanupTemporaryAudio() }
+        if ProcessInfo.processInfo.environment["SERMON_STUDIO_SMOKE_TEST"] == "1" {
+            // CI startup check: report what the real app model loaded (titles only, no sermon text).
+            FileHandle.standardError.write(Data(("SMOKE library=\(library.count) blocked=\(store.isWriteBlocked) titles=\(library.map(\.displayTitle).joined(separator: "|")) speakers=\(library.map(\.speaker).joined(separator: "|"))" + "\n").utf8))
+        }
     }
 
     // MARK: Editing state

@@ -36,13 +36,15 @@ jobs:
           # Seed an archive from another platform so startup also exercises loading and migration.
           mkdir -p "$HOME/Library/Application Support/SermonStudio"
           cp Tests/SermonCoreTests/Fixtures/windows-library.json "$HOME/Library/Application Support/SermonStudio/archive.json"
-          .build/debug/SermonStudio > launch.log 2>&1 &
+          SERMON_STUDIO_SMOKE_TEST=1 .build/debug/SermonStudio > launch.log 2>&1 &
           PID=$!
           sleep 25
           if kill -0 "$PID" 2>/dev/null; then echo "App is running after 25 s (pid $PID)"; kill "$PID"; else echo "App exited during startup"; cat launch.log; exit 1; fi
           # The seeded archive must be untouched by simply launching (no silent rewrite or data loss).
           cmp Tests/SermonCoreTests/Fixtures/windows-library.json "$HOME/Library/Application Support/SermonStudio/archive.json"
           echo "Archive unchanged by startup."
+          cat launch.log
+          grep -q "SMOKE library=2 blocked=false titles=Grace That Saves|Unopened speakers=Pastor Reed|" launch.log
       - uses: actions/upload-artifact@v4
         if: always()
         with:
