@@ -39,7 +39,7 @@
                     <TextBox x:Name="Transcript" AcceptsReturn="True" TextWrapping="Wrap" VerticalAlignment="Stretch"
                              VerticalContentAlignment="Top" MinHeight="400"/>
                 </StackPanel>
-                <GridSplitter Grid.Column="1" Width="8" ResizeDirection="Columns" HorizontalAlignment="Stretch"/>
+                <Border Grid.Column="1" Width="2" Background="{ThemeResource SystemControlForegroundBaseLowBrush}" HorizontalAlignment="Center"/>
                 <StackPanel Grid.Column="2" Spacing="8">
                     <TextBlock Text="Sermon outline" FontSize="20" FontWeight="SemiBold"/>
                     <TextBox x:Name="Outline" AcceptsReturn="True" TextWrapping="Wrap" VerticalAlignment="Stretch"
