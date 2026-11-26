@@ -21,6 +21,7 @@ struct Sermon: Codable, Identifiable {
     var original: String
     var cleaned: String
     var segments: [SermonSegment]? = nil
+    var outline: String? = nil
 }
 struct SermonSegment: Codable, Identifiable {
     var id = UUID()
@@ -55,6 +56,8 @@ struct StudioView: View {
     @State private var outlineDraft = ""
     @AppStorage("outlineUseOllama") private var outlineUseOllama = false
     @State private var outlineSource = ""
+    @State private var outlineLookup = ""
+    @State private var autoSaveTask: Task<Void, Never>?
     @AppStorage("localOutlineModel") private var localOutlineModel = "llama3.2:3b"
     @State private var generatingAIOutline = false
     @State private var outlineTask: Task<Void, Never>?
@@ -232,6 +235,92 @@ struct StudioView: View {
             }
         }
     }
+    private func scheduleOutlineSave() {
+        autoSaveTask?.cancel()
+        guard selectedID != nil else { return }
+        autoSaveTask = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 650_000_000)
+            guard !Task.isCancelled else { return }
+            save()
+        }
+    }
+    private func locateOutlinePassage() {
+        let query = outlineLookup.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !query.isEmpty else { return }
+        if activeText.localizedCaseInsensitiveContains(query) {
+            findText = query
+            page = "Transcript editor"
+            status = "Passage found in transcript. Use Find to review it."
+        } else {
+            status = "No exact transcript match found. Try a shorter phrase from the outline."
+        }
+    }
+    private func exportOutline(_ format: String) {
+        guard !outlineDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            status = "Generate or write an outline before exporting."
+            return
+        }
+        let panel = NSSavePanel()
+        let safeTitle = (title.isEmpty ? "Sermon" : title).replacingOccurrences(of: "[/:]", with: "_", options: .regularExpression)
+        panel.nameFieldStringValue = safeTitle + "-Outline." + format
+        guard panel.runModal() == .OK, let destination = panel.url else { return }
+        do {
+            switch format {
+            case "docx":
+                try exportDOCX(to: destination, text: outlineDraft)
+            case "pdf":
+                let text = NSTextView(frame: NSRect(x: 0, y: 0, width: 540, height: 800))
+                text.string = outlineDraft
+                text.font = NSFont.systemFont(ofSize: 13)
+                let data = text.dataWithPDF(inside: text.bounds)
+                try data.write(to: destination, options: .atomic)
+            default:
+                try outlineDraft.write(to: destination, atomically: true, encoding: .utf8)
+            }
+            status = "Outline exported to " + destination.path
+        } catch { status = "Outline export failed: " + error.localizedDescription }
+    }
+    private var outlineWorkspace: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Picker("Outline generator", selection: $outlineUseOllama) {
+                Text("Original (default)").tag(false)
+                Text("Ollama AI (optional)").tag(true)
+            }.pickerStyle(.segmented)
+            HStack {
+                Button("Generate outline") {
+                    if outlineUseOllama { generateLocalAIOutline() }
+                    else { generateOutlineDraft() }
+                }.disabled(generatingAIOutline)
+                if generatingAIOutline {
+                    ProgressView()
+                    Button("Cancel") { outlineTask?.cancel() }
+                }
+                Button("Copy") {
+                    NSPasteboard.general.clearContents()
+                    NSPasteboard.general.setString(outlineDraft, forType: .string)
+                }.disabled(outlineDraft.isEmpty)
+            }
+            TextEditor(text: $outlineDraft)
+                .font(.system(size: fontSize, design: .serif))
+                .frame(minHeight: 250)
+                .onChange(of: outlineDraft) { _ in scheduleOutlineSave() }
+            HStack {
+                Button("Word") { exportOutline("docx") }
+                Button("PDF") { exportOutline("pdf") }
+                Button("Markdown") { exportOutline("md") }
+            }.disabled(outlineDraft.isEmpty)
+            HStack {
+                TextField("Find phrase in transcript", text: $outlineLookup)
+                Button("Find passage") { locateOutlinePassage() }
+            }
+            if outlineSource != activeText && !outlineSource.isEmpty {
+                Text("Transcript changed since outline generation. Review before regenerating.")
+                    .font(.caption).foregroundStyle(.orange)
+            }
+            Text("Outlines are saved with library sermons. The original generator works without Ollama.")
+                .font(.caption).foregroundStyle(.secondary)
+        }
+    }
     private let models = ["base.en", "small.en", "medium.en", "large-v3-v20240930_626MB"]
     private func resolvedModel(_ selection: String) -> String {
         switch selection {
@@ -242,13 +331,14 @@ struct StudioView: View {
     private var archiveURL: URL { FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("SermonStudio/archive.json") }
     var body: some View {
         NavigationSplitView {
-            List(["Dashboard", "New sermon", "Transcript editor", "Sermon library", "Settings"], id: \.self, selection: $page) { Text($0).tag($0) }
+            List(["Dashboard", "New sermon", "Transcript editor", "Sermon outlines", "Sermon library", "Settings"], id: \.self, selection: $page) { Text($0).tag($0) }
         } detail: {
             VStack(alignment: .leading, spacing: 16) {
                 Text(page ?? "New sermon").font(.largeTitle.bold())
                 if page == "Dashboard" {
                     Text("\(library.count) saved sermons").font(.title2)
                     Text("Recent sermons").font(.headline)
+                    Button("Open outline workspace") { page = "Sermon outlines" }
                     ForEach(library.prefix(5)) { item in
                         Button(item.date + "  " + item.title) { openSermon(item) }
                     }
@@ -332,7 +422,7 @@ struct StudioView: View {
                                     TextEditor(text: $outlineDraft)
                                         .font(.system(.body, design: .monospaced))
                                         .frame(minHeight: 300)
-                                    Text("Edit the outline directly. Copy it to use in your notes. Outline changes are not yet saved in the sermon library.")
+                                    Text("Outline edits automatically save for sermons already in your library.")
                                         .font(.caption).foregroundStyle(.secondary)
                                 } else {
                                     Text(outlineUseOllama ? "Ollama runs locally and requires a separately installed model. The original outline generator remains available without Ollama." : "The original transcript-based outline generator works without Ollama or an internet connection.")
@@ -361,6 +451,14 @@ struct StudioView: View {
                         HStack { Button("Save to library", action: save); Button("Export DOCX") { export("docx") }; Button("Print / PDF") { printTranscript() } }
                         HStack { Button("Export TXT") { export("txt") }; Button("Export Markdown") { export("md") }; Button("Export RTF") { export("rtf") }; Button("Export SRT") { export("srt") }; Button("Export VTT") { export("vtt") } }
                         }
+                    }
+                } else if page == "Sermon outlines" {
+                    HSplitView {
+                        VStack(alignment: .leading) {
+                            Text("Transcript").font(.headline)
+                            ScrollView { Text(activeText.isEmpty ? "Open a sermon to view its transcript." : activeText).textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading) }
+                        }.frame(minWidth: 260, idealWidth: 430)
+                        ScrollView { outlineWorkspace.padding(.horizontal, 10) }.frame(minWidth: 360, idealWidth: 540)
                     }
                 } else if page == "Sermon library" {
                     Button("Import web archive…", action: importArchive)
@@ -439,6 +537,7 @@ struct StudioView: View {
                 let results: [TranscriptionResult] = try await kit.transcribe(audioPath: audio.path)
                 try Task.checkCancellation()
                 segments = results.flatMap { $0.segments }.map { SermonSegment(start: Double($0.start), end: Double($0.end), text: $0.text, confidence: Double($0.avgLogprob)) }
+                outlineDraft = ""; outlineSource = ""
                 original = results.map { $0.text }.joined(separator: " ")
                 cleaned = original.replacingOccurrences(of: "\\b(um|uh|erm)\\b[ ,]*", with: "", options: [.regularExpression, .caseInsensitive])
                 selectedID = nil; page = "Transcript editor"; save()
@@ -452,7 +551,7 @@ struct StudioView: View {
     func save() {
         let id = selectedID ?? UUID().uuidString
         let date = String(ISO8601DateFormatter().string(from: sermonDate).prefix(10))
-        let item = Sermon(id: id, title: title, date: date, original: original, cleaned: cleaned, segments: segments)
+        let item = Sermon(id: id, title: title, date: date, original: original, cleaned: cleaned, segments: segments, outline: outlineDraft)
         library.removeAll { $0.id == id }; library.insert(item, at: 0); selectedID = id
         do { try persist(); status = "Saved to library." } catch { status = error.localizedDescription }
     }
@@ -543,7 +642,8 @@ struct StudioView: View {
     func openSermon(_ item: Sermon) {
         selectedID = item.id; title = item.title; original = item.original; cleaned = item.cleaned
         sermonDate = ISO8601DateFormatter().date(from: item.date + "T12:00:00Z") ?? Date()
-        segments = item.segments ?? []; audio = nil; player = nil; page = "Transcript editor"
+        segments = item.segments ?? []; outlineDraft = item.outline ?? ""; outlineSource = activeText
+        audio = nil; player = nil; page = "Transcript editor"
     }
     func clean(_ text: String) -> String {
         text.replacingOccurrences(of: "\\b(um|uh|erm)\\b[ ,]*", with: "", options: [.regularExpression, .caseInsensitive])
