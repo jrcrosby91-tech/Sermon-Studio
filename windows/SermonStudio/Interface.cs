@@ -197,20 +197,42 @@ public sealed partial class MainWindow
             var query=System.Text.RegularExpressions.Regex.Replace(passage,@"^[#>*\s\d.]+","").Replace("**","").Trim();
             if(query.Length==0)return;
             var index=Transcript.Text.IndexOf(query,StringComparison.OrdinalIgnoreCase);
-            if(index<0){Status.Text="No exact source passage found. Try selecting a shorter excerpt.";return;}
+            if(index<0){var words=System.Text.RegularExpressions.Regex.Matches(query,@"\w+").Select(m=>m.Value).ToArray();for(int n=Math.Min(12,words.Length);n>=3&&index<0;n--){var pattern=string.Join(@"\W+",words.Take(n).Select(System.Text.RegularExpressions.Regex.Escape));var match=System.Text.RegularExpressions.Regex.Match(Transcript.Text,pattern,System.Text.RegularExpressions.RegexOptions.IgnoreCase);if(match.Success){index=match.Index;query=match.Value;}}}if(index<0){Status.Text="No matching source passage found.";return;}
             if(editorCards[0].Visibility!=Visibility.Visible){Status.Text="Open Sermon outlines or Full workspace to view the source.";return;}
             timedScroll.Visibility=Visibility.Collapsed;Transcript.Visibility=Visibility.Visible;timedToggle.Content="Timestamp view";
             Transcript.Focus(FocusState.Programmatic);Transcript.Select(index,query.Length);Status.Text="Source passage located.";
         }
         ButtonFor(formatBar,"Find source",(_,_)=>LocateSource(Outline.SelectedText));
         bool writingMode=false;
-        ButtonFor(formatBar,"Focus mode",(_,_)=>{
-            writingMode=!writingMode;
-            editorCards[0].Visibility=writingMode?Visibility.Collapsed:Visibility.Visible;
-            SetWritingDivider(!writingMode);
-            workspace.ColumnDefinitions[0].Width=writingMode?new GridLength(0):new GridLength(split,GridUnitType.Star);
-            workspace.ColumnDefinitions[1].Width=new GridLength(writingMode?1:1-split,GridUnitType.Star);
-        });
+        Action? toggleFocus=null;
+        ButtonFor(formatBar,"Focus mode",(_,_)=>toggleFocus?.Invoke());
+        var scripturePattern=new System.Text.RegularExpressions.Regex(@"\b(?:[123]\s+)?(?:Genesis|Exodus|Leviticus|Numbers|Deuteronomy|Joshua|Judges|Ruth|Samuel|Kings|Chronicles|Ezra|Nehemiah|Esther|Job|Psalms?|Proverbs|Ecclesiastes|Song of Solomon|Isaiah|Jeremiah|Lamentations|Ezekiel|Daniel|Hosea|Joel|Amos|Obadiah|Jonah|Micah|Nahum|Habakkuk|Zephaniah|Haggai|Zechariah|Malachi|Matthew|Mark|Luke|John|Acts|Romans|Corinthians|Galatians|Ephesians|Philippians|Colossians|Thessalonians|Timothy|Titus|Philemon|Hebrews|James|Peter|Jude|Revelation)\s+\d+:\d+(?:[-–]\d+)?\b",System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+        var verseCache=new Dictionary<string,string>(StringComparer.OrdinalIgnoreCase);
+        void AddScriptureRuns(TextBlock text,string content){
+            int offset=0;
+            foreach(System.Text.RegularExpressions.Match match in scripturePattern.Matches(content)){
+                if(match.Index>offset)text.Inlines.Add(new Microsoft.UI.Xaml.Documents.Run{Text=content.Substring(offset,match.Index-offset)});
+                var reference=match.Value;
+                var link=new Microsoft.UI.Xaml.Documents.Hyperlink{NavigateUri=new Uri("https://www.biblegateway.com/passage/?search="+Uri.EscapeDataString(reference)+"&version=KJV")};
+                link.Inlines.Add(new Microsoft.UI.Xaml.Documents.Run{Text=reference,Foreground=gold});
+                var host=new Microsoft.UI.Xaml.Documents.InlineUIContainer();
+                var label=new TextBlock();label.Inlines.Add(link);
+                var tip=new ToolTip{Content="KJV · Loading passage (internet required)…"};
+                ToolTipService.SetToolTip(label,tip);
+                tip.Opened+=async(_,_)=>{
+                    if(verseCache.TryGetValue(reference,out var cached)){tip.Content=cached;return;}
+                    try{
+                        using var client=new HttpClient{Timeout=TimeSpan.FromSeconds(12)};
+                        var json=await client.GetStringAsync("https://bible-api.com/"+Uri.EscapeDataString(reference)+"?translation=kjv");
+                        using var doc=System.Text.Json.JsonDocument.Parse(json);
+                        var passage=doc.RootElement.GetProperty("text").GetString()?.Trim()??"Passage unavailable.";
+                        var value=reference+" (KJV)\n\n"+passage;verseCache[reference]=value;tip.Content=new TextBlock{Text=value,TextWrapping=TextWrapping.Wrap,MaxWidth=420};
+                    }catch{tip.Content="Passage unavailable. Click the reference to open KJV online.";}
+                };
+                host.Child=label;text.Inlines.Add(host);offset=match.Index+match.Length;
+            }
+            if(offset<content.Length)text.Inlines.Add(new Microsoft.UI.Xaml.Documents.Run{Text=content.Substring(offset)});
+        }
         void RenderOutline(){
             preview.Children.Clear();
             foreach(var raw in Outline.Text.Split('\n')){
@@ -223,6 +245,7 @@ public sealed partial class MainWindow
                 if(bullet||scripture)text.Margin=new Thickness(18,0,0,0);
                 foreach(var part in System.Text.RegularExpressions.Regex.Split(content,@"(\*\*[^*]+\*\*|\*[^*]+\*)")){
                     if(part.Length==0)continue;
+                    if(scripturePattern.IsMatch(part)){AddScriptureRuns(text,part.Trim('*'));continue;}
                     var run=new Microsoft.UI.Xaml.Documents.Run{Text=part.Trim('*')};
                     if(part.StartsWith("**")&&part.EndsWith("**"))run.FontWeight=Microsoft.UI.Text.FontWeights.Bold;
                     else if(part.StartsWith("*")&&part.EndsWith("*"))run.FontStyle=Windows.UI.Text.FontStyle.Italic;
@@ -397,7 +420,12 @@ public sealed partial class MainWindow
         settings.Children.Add(theme);
         if(preferredPage=="New sermon"||preferredPage=="Scripture references"||!pageActions.ContainsKey(preferredPage))preferredPage="Sermon outlines";
         pageActions[preferredPage]();
-        shell.Children.Add(new ScrollViewer{Content=sidebar,Background=navy,VerticalScrollBarVisibility=ScrollBarVisibility.Auto}); Grid.SetColumn(root,1); shell.Children.Add(root);
+        var sidebarScroll=new ScrollViewer{Content=sidebar,Background=navy,VerticalScrollBarVisibility=ScrollBarVisibility.Auto};shell.Children.Add(sidebarScroll); Grid.SetColumn(root,1); shell.Children.Add(root);
+        toggleFocus=()=>{
+            if(writingMode){writingMode=false;sidebarScroll.Visibility=Visibility.Visible;shell.ColumnDefinitions[0].Width=new GridLength(220);PageTitle.Visibility=Visibility.Visible;pageActions[preferredPage]();return;}
+            writingMode=true;sidebarScroll.Visibility=Visibility.Collapsed;shell.ColumnDefinitions[0].Width=new GridLength(0);PageTitle.Visibility=Visibility.Collapsed;tools.Visibility=Visibility.Collapsed;scroll.Visibility=Visibility.Collapsed;editorCards[0].Visibility=Visibility.Collapsed;divider.Visibility=Visibility.Collapsed;
+            workspace.ColumnDefinitions[0].Width=new GridLength(0);workspace.ColumnDefinitions[1].Width=new GridLength(1,GridUnitType.Star);workspace.ColumnDefinitions[2].Width=new GridLength(0);
+        };
         var fullScreenButton = new Button { Content = "Full screen (F11)", HorizontalAlignment = HorizontalAlignment.Stretch };
         void ToggleFullScreen()
         {
