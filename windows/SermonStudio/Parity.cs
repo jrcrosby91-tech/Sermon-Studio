@@ -20,6 +20,7 @@ public sealed partial class MainWindow
     private string _cleanedText = "";
     private bool _showCleaned;
     private MediaPlayer? _player;
+    private void ResetRecording(){_audioPath=null;if(_player!=null){_player.Pause();_player.Source=null;}}
     private async Task<string?> PickFile(params string[] extensions)
     {
         var picker = new FileOpenPicker();
@@ -30,8 +31,10 @@ public sealed partial class MainWindow
     private async void ImportAudio_Click(object sender, RoutedEventArgs e)
     {
         try {
+            if(_transcription!=null){Status.Text="Finish or cancel transcription first.";return;}
+            var revision=_workspaceRevision;
             var path = await PickFile(".wav",".mp3",".m4a",".mp4",".flac",".ogg");
-            if (path == null) return;
+            if (path == null||revision!=_workspaceRevision||_transcription!=null) return;
             _audioPath = path;
             _player ??= new MediaPlayer();
             if (_audioHost != null && !_audioHost.Children.Contains(AudioPlayer)) _audioHost.Children.Add(AudioPlayer);
