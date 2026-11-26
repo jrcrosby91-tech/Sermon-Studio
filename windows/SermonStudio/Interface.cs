@@ -520,12 +520,35 @@ public sealed partial class MainWindow
         theme.SelectionChanged += (_,_)=>{ApplyTheme();try{Directory.CreateDirectory(Path.GetDirectoryName(settingsPath)!);File.WriteAllText(settingsPath,theme.SelectedIndex.ToString());}catch{}};
         sidebar.RequestedTheme=ElementTheme.Dark;
         var appearancePanel=new StackPanel{Spacing=10};appearancePanel.Children.Add(theme);
-        var fontChoice=new ComboBox{Header="Editor text size"};foreach(var size in new[]{14,17,20,23,26})fontChoice.Items.Add(size);fontChoice.SelectedIndex=1;
+        var fontSizes=new[]{14,17,20,23,26};
+        var fontLabels=new[]{"Small","Default","Large","Extra large","Largest"};
+        int editorSize=17;
         var fontPath=Path.Combine(Path.GetDirectoryName(_libraryPath)!,"editor-size.txt");
-        try{if(File.Exists(fontPath)&&int.TryParse(File.ReadAllText(fontPath),out var savedSize)&&fontChoice.Items.Contains(savedSize))fontChoice.SelectedItem=savedSize;}catch{}
-        void ApplyEditorSize(){if(fontChoice.SelectedItem is int size){Transcript.FontSize=size;Outline.FontSize=size;rich.FontSize=size;}}
-        ApplyEditorSize();fontChoice.SelectionChanged+=(_,_)=>{ApplyEditorSize();try{Directory.CreateDirectory(Path.GetDirectoryName(fontPath)!);File.WriteAllText(fontPath,fontChoice.SelectedItem?.ToString()??"17");}catch{}};
-        appearancePanel.Children.Add(fontChoice);
+        try{if(File.Exists(fontPath)&&int.TryParse(File.ReadAllText(fontPath),out var savedSize)&&fontSizes.Contains(savedSize))editorSize=savedSize;}catch(Exception ex){App.Log("Read editor size: "+ex.Message);}
+        appearancePanel.Children.Add(new TextBlock{Text="Editor text size"});
+        var fontChoices=new RadioButtons{MaxColumns=5,HorizontalAlignment=HorizontalAlignment.Left};
+        for(int i=0;i<fontSizes.Length;i++){
+            var option=new RadioButton{Content=new TextBlock{Text="A",FontSize=fontSizes[i],FontFamily=new FontFamily("Georgia")},MinHeight=44,MinWidth=48,Padding=new Thickness(6)};
+            Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(option,fontLabels[i]+" text size");
+            ToolTipService.SetToolTip(option,fontLabels[i]);fontChoices.Items.Add(option);
+        }
+        var fontDescription=new TextBlock{Opacity=.75};
+        var fontPreview=new TextBlock{Text="Thy word is a lamp unto my feet, and a light unto my path.",FontFamily=new FontFamily("Georgia"),TextWrapping=TextWrapping.Wrap};
+        void ApplyEditorSize(){
+            Transcript.FontSize=editorSize;Outline.FontSize=editorSize;rich.FontSize=editorSize;
+            fontPreview.FontSize=editorSize;fontDescription.Text=fontLabels[Array.IndexOf(fontSizes,editorSize)]+" · Editor preview";
+        }
+        fontChoices.SelectedIndex=Array.IndexOf(fontSizes,editorSize);
+        ApplyEditorSize();
+        fontChoices.SelectionChanged+=(_,_)=>{
+            if(fontChoices.SelectedIndex<0||fontChoices.SelectedIndex>=fontSizes.Length)return;
+            editorSize=fontSizes[fontChoices.SelectedIndex];ApplyEditorSize();
+            try{Directory.CreateDirectory(Path.GetDirectoryName(fontPath)!);File.WriteAllText(fontPath+".tmp",editorSize.ToString());File.Move(fontPath+".tmp",fontPath,true);}
+            catch(Exception ex){Status.Text="Could not save editor size: "+ex.Message;}
+        };
+        appearancePanel.Children.Add(fontChoices);
+        appearancePanel.Children.Add(fontDescription);
+        appearancePanel.Children.Add(new Border{Padding=new Thickness(12),CornerRadius=new CornerRadius(8),BorderThickness=new Thickness(1),BorderBrush=Brush(125,145,165),Child=fontPreview});
         appearancePanel.Children.Insert(0,new TextBlock{Text="Appearance and accessibility",FontSize=22,FontFamily=new FontFamily("Georgia")});settings.Children.Insert(0,Card(appearancePanel));
         var updatePanel=new StackPanel{Spacing=8};
         var autoCheck=new CheckBox{Content="Check for updates on startup",IsChecked=false};
