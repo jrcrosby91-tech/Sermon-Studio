@@ -158,8 +158,8 @@ public sealed partial class MainWindow
             if(quote)line=line.TrimStart('>',' ');if(bullet)line="• "+line.Substring(2);
             var paragraph=new XElement(w+"p");
             if(heading||quote||bullet)paragraph.Add(new XElement(w+"pPr",new XElement(w+"spacing",new XAttribute(w+"after","120")),quote||bullet?new XElement(w+"ind",new XAttribute(w+"left","360")):null));
-            foreach(var part in formatted?Regex.Split(line,@"(\*\*[^*]+\*\*|\*[^*]+\*)"):new[]{line}){
-                bool bold=heading||(formatted&&part.StartsWith("**")&&part.EndsWith("**"));bool italic=quote||(formatted&&!bold&&part.StartsWith("*")&&part.EndsWith("*"));
+            foreach(var part in formatted?Regex.Split(line,@"(\*\*\*[^*]+\*\*\*|\*\*[^*]+\*\*|\*[^*]+\*)"):new[]{line}){
+                bool bold=heading||(formatted&&part.StartsWith("**")&&part.EndsWith("**"));bool italic=quote||(formatted&&(part.StartsWith("***")||!part.StartsWith("**"))&&part.StartsWith("*")&&part.EndsWith("*"));
                 paragraph.Add(new XElement(w+"r",new XElement(w+"rPr",bold?new XElement(w+"b"):null,italic?new XElement(w+"i"):null,heading?new XElement(w+"sz",new XAttribute(w+"val",size)):null),new XElement(w+"t",new XAttribute(xml+"space","preserve"),XmlSafe(formatted?part.Trim('*'):part))));
             }
             return paragraph;
