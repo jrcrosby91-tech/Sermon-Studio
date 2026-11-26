@@ -77,17 +77,30 @@ public sealed partial class MainWindow
         }
         await new ContentDialog{XamlRoot=((FrameworkElement)Content).XamlRoot,Title="Recording timestamps",Content=list,CloseButtonText="Close"}.ShowAsync();
     }
-    private async void Updates_Click(object sender,RoutedEventArgs e)
-    {
+    private bool _checkingUpdates;
+    private TextBlock? _updateNotice;
+    private static (int Run,int Attempt) BuildNumber(string tag){
+        var match=Regex.Match(tag,@"^windows-test-(\d+)-(\d+)$");
+        return match.Success&&int.TryParse(match.Groups[1].Value,out int run)&&int.TryParse(match.Groups[2].Value,out int attempt)?(run,attempt):(0,0);
+    }
+    private async void Updates_Click(object sender,RoutedEventArgs e)=>await CheckUpdatesAsync(true);
+    private async Task CheckUpdatesAsync(bool interactive){
+        if(_checkingUpdates)return;_checkingUpdates=true;
         try{
-            using var client=new HttpClient();client.DefaultRequestHeaders.UserAgent.ParseAdd("SermonStudio/1.0");
+            using var client=new HttpClient{Timeout=TimeSpan.FromSeconds(20)};client.DefaultRequestHeaders.UserAgent.ParseAdd("SermonStudio/1.0");
             using var json=JsonDocument.Parse(await client.GetStringAsync("https://api.github.com/repos/jrcrosby91-tech/Sermon-Studio/releases?per_page=30"));
-            var release=json.RootElement.EnumerateArray().FirstOrDefault(x=>(x.GetProperty("tag_name").GetString()??"").StartsWith("windows-test-"));
-            if(release.ValueKind==JsonValueKind.Undefined){Status.Text="No Windows release found.";return;}
-            var url=release.GetProperty("html_url").GetString()!;
-            var result=await new ContentDialog{XamlRoot=((FrameworkElement)Content).XamlRoot,Title="Windows test release",Content=release.GetProperty("name").GetString(),PrimaryButtonText="Download and install",CloseButtonText="Close"}.ShowAsync();
-            if(result==ContentDialogResult.Primary) { Status.Text="Downloading verified update…"; await InstallReleaseAsync(release); }
-        }catch(Exception ex){Status.Text="Update check failed: "+ex.Message;}
+            var release=json.RootElement.EnumerateArray().Where(x=>BuildNumber(x.GetProperty("tag_name").GetString()??"").Run>0&&!x.GetProperty("draft").GetBoolean()).OrderByDescending(x=>BuildNumber(x.GetProperty("tag_name").GetString()??"")).FirstOrDefault();
+            if(release.ValueKind==JsonValueKind.Undefined){if(interactive)Status.Text="No Windows release found.";return;}
+            var tag=release.GetProperty("tag_name").GetString()??"";
+            var path=Path.Combine(AppContext.BaseDirectory,"build-tag.txt");
+            var installed=File.Exists(path)?BuildNumber(File.ReadAllText(path).Trim()):(0,0);
+            if(installed!=(0,0)&&BuildNumber(tag).CompareTo(installed)<=0){if(_updateNotice!=null)_updateNotice.Text="Windows build is up to date.";if(interactive)Status.Text="Already up to date.";return;}
+            if(_updateNotice!=null)_updateNotice.Text="Available Windows test build: "+tag;
+            if(!interactive)return;
+            var result=await new ContentDialog{XamlRoot=((FrameworkElement)Content).XamlRoot,Title="Windows test release",Content=tag+" — install only when ready. Your local library will be retained.",PrimaryButtonText="Download and install",CloseButtonText="Close",DefaultButton=ContentDialogButton.Close}.ShowAsync();
+            if(result==ContentDialogResult.Primary){Status.Text="Downloading verified update…";await InstallReleaseAsync(release);}
+        }catch(Exception ex){if(interactive)Status.Text="Update check failed: "+ex.Message;else if(_updateNotice!=null)_updateNotice.Text="Automatic update check unavailable.";}
+        finally{_checkingUpdates=false;}
     }
     private static void WriteRtf(string path,string text)
     {
