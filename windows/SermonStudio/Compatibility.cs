@@ -45,7 +45,7 @@ public sealed partial class MainWindow
             var path=Path.Combine(folder,"Sermon-"+DateTime.Now.ToString("yyyyMMdd-HHmmss")+".pdf");
             var doc=new MigraDoc.DocumentObjectModel.Document();
             doc.Info.Title=SermonTitle.Text;
-            doc.Styles["Normal"].Font.Name="Arial";
+            doc.Styles["Normal"]!.Font.Name="Arial";
             doc.Styles["Normal"].Font.Size=11;
             var section=doc.AddSection();
             section.AddParagraph(SermonTitle.Text,"Heading1");
@@ -58,11 +58,11 @@ public sealed partial class MainWindow
                     if(heading){paragraph.Format.Font.Bold=true;paragraph.Format.Font.Size=line.StartsWith("###")?14:17;paragraph.Format.SpaceBefore=10;line=line.TrimStart('#',' ');}
                     if(quote){paragraph.Format.LeftIndent=18;paragraph.Format.Font.Italic=true;line=line.TrimStart('>',' ');}
                     if(bullet){paragraph.Format.LeftIndent=18;line="• "+line.Substring(2);}
-                    foreach(var part in Regex.Split(line,@"(\*\*[^*]+\*\*|\*[^*]+\*)")){
+                    foreach(var part in Regex.Split(line,@"(\*\*\*[^*]+\*\*\*|\*\*[^*]+\*\*|\*[^*]+\*)")){
                         if(part.Length==0)continue;
                         var run=paragraph.AddFormattedText(part.Trim('*'));
                         if(part.StartsWith("**")&&part.EndsWith("**"))run.Bold=true;
-                        else if(part.StartsWith("*")&&part.EndsWith("*"))run.Italic=true;
+                        if((part.StartsWith("***")||!part.StartsWith("**"))&&part.StartsWith("*")&&part.EndsWith("*"))run.Italic=true;
                     }
                 }
             }
