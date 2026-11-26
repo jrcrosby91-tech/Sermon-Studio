@@ -89,7 +89,7 @@ public sealed partial class MainWindow
         var transcriptPanel=(Grid)editorCards[0].Child;
         transcriptPanel.RowDefinitions.Insert(1,new RowDefinition{Height=GridLength.Auto});
         Grid.SetRow(search,1);transcriptPanel.Children.Add(new ScrollViewer{Content=search,HorizontalScrollMode=ScrollMode.Enabled,HorizontalScrollBarVisibility=ScrollBarVisibility.Auto,VerticalScrollMode=ScrollMode.Disabled});
-        Grid.SetRow((UIElement)transcriptPanel.Children[transcriptPanel.Children.Count-1],1);Grid.SetRow(Transcript,2);
+        Grid.SetRow((FrameworkElement)transcriptPanel.Children[transcriptPanel.Children.Count-1],1);Grid.SetRow(Transcript,2);
         var outlinePanel=(Grid)editorCards[1].Child;
         transcriptPanel.RowDefinitions.Add(new RowDefinition{Height=GridLength.Auto});
         Grid.SetRow(playback,3);transcriptPanel.Children.Add(playback);
