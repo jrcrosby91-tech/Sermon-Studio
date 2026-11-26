@@ -4,6 +4,7 @@ using Microsoft.UI.Xaml.Media;
 namespace SermonStudio;
 public sealed partial class MainWindow
 {
+    private StackPanel? _audioHost;
     private void BuildInterface()
     {
         Title = "Sermon Studio";
@@ -41,7 +42,9 @@ public sealed partial class MainWindow
         ButtonFor(actions,"Scripture",Scripture_Click); ButtonFor(actions,"Export documents",ExportMore_Click);
         TranscriptionProgress = new ProgressBar { Height = 4 }; tools.Children.Add(TranscriptionProgress);
         App.Log("Building interface: audio player");
-        AudioPlayer = new MediaPlayerElement { AreTransportControlsEnabled = true, Height = 80 }; tools.Children.Add(AudioPlayer);
+        AudioPlayer = new MediaPlayerElement { AreTransportControlsEnabled = true, Height = 80 };
+        // Attach media controls only when an audio file is imported.
+        _audioHost = tools;
         App.Log("Building interface: editors");
         var workspace = new Grid { ColumnSpacing = 10 };
         workspace.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1,GridUnitType.Star) });
@@ -68,6 +71,13 @@ public sealed partial class MainWindow
         ScriptureResults = new TextBlock { TextWrapping = TextWrapping.Wrap, IsTextSelectionEnabled = true }; side.Children.Add(ScriptureResults);
         Status = new TextBlock { Text = "Ready", TextWrapping = TextWrapping.Wrap }; Grid.SetRow(Status,3); root.Children.Add(Status);
         App.Log("Attaching interface");
+        root.Loaded += (_, _) => App.Log("Root Loaded");
+        root.LayoutUpdated += OnFirstLayout;
         Content = root;
+    }
+    private void OnFirstLayout(object? sender, object e)
+    {
+        if (Content is FrameworkElement root) root.LayoutUpdated -= OnFirstLayout;
+        App.Log("First layout completed");
     }
 }
