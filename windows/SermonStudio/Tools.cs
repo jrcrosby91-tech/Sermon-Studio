@@ -29,6 +29,8 @@ public sealed partial class MainWindow
         Add("Compare transcripts",Compare_Click);
         Add("Show timestamps",Timestamps_Click);
         Add("Check for Windows updates",Updates_Click);
+        Add("Export Mac-compatible archive",MacArchive_Click);
+        Add("Print / Save PDF",Pdf_Click);
     }
     private async void DownloadModel_Click(object sender,RoutedEventArgs e)
     {
@@ -83,8 +85,8 @@ public sealed partial class MainWindow
             var release=json.RootElement.EnumerateArray().FirstOrDefault(x=>(x.GetProperty("tag_name").GetString()??"").StartsWith("windows-test-"));
             if(release.ValueKind==JsonValueKind.Undefined){Status.Text="No Windows release found.";return;}
             var url=release.GetProperty("html_url").GetString()!;
-            var result=await new ContentDialog{XamlRoot=((FrameworkElement)Content).XamlRoot,Title="Windows test release",Content=release.GetProperty("name").GetString(),PrimaryButtonText="Open download page",CloseButtonText="Close"}.ShowAsync();
-            if(result==ContentDialogResult.Primary) await Windows.System.Launcher.LaunchUriAsync(new Uri(url));
+            var result=await new ContentDialog{XamlRoot=((FrameworkElement)Content).XamlRoot,Title="Windows test release",Content=release.GetProperty("name").GetString(),PrimaryButtonText="Download and install",CloseButtonText="Close"}.ShowAsync();
+            if(result==ContentDialogResult.Primary) { Status.Text="Downloading verified update…"; await InstallReleaseAsync(release); }
         }catch(Exception ex){Status.Text="Update check failed: "+ex.Message;}
     }
     private static void WriteRtf(string path,string text)
