@@ -1,31 +1,11 @@
 // Browser outline workspace. No remote AI requests: the original generator is always available.
 const byId = id => document.getElementById(id);
 let outlineTimer;
-function activeSermon() {
-  const title = byId('title').value || 'Untitled sermon';
-  const date = byId('date').value;
-  const text = byId('editor').value || '';
-  const archive = JSON.parse(localStorage.getItem('sermonArchive') || '[]');
-  const match = archive.find(item => item.title === title && item.date === date);
-  return {title,date,text,match,archive};
-}
-function showOutline() {
-  const {text,match} = activeSermon();
-  byId('outlineTranscript').textContent = text || 'Open a transcript in the editor first.';
-  byId('outlineText').value = match?.outline || sessionStorage.getItem('sermonOutlineDraft') || '';
-  byId('outlineSaved').textContent = match ? 'Saved sermon' : 'Save the sermon to enable outline autosave';
-}
-function saveOutline() {
-  const value = byId('outlineText').value;
-  sessionStorage.setItem('sermonOutlineDraft', value);
-  const {match,archive} = activeSermon();
-  if (!match) {byId('outlineSaved').textContent='Draft only — save sermon in Transcript editor';return}
-  match.outline=value;
-  try {
-    localStorage.setItem('sermonArchive', JSON.stringify(archive));
-    byId('outlineSaved').textContent='Outline saved on this device';
-  } catch (error) {byId('outlineSaved').textContent='Could not save: '+error.message}
-}
+function activeSermon(){const x=window.sermonTools.get();return {title:x.title||'Untitled sermon',text:byId('editor').value,match:x}}
+function showOutline(){clearTimeout(outlineTimer);const {text,match}=activeSermon();byId('outlineTranscript').textContent=text||'Enter a transcript first.';byId('outlineText').value=match.outline||'';byId('outlineSaved').textContent=match.id?'Saved sermon':'New draft'}
+function saveOutline(){clearTimeout(outlineTimer);window.sermonTools.setOutline(byId('outlineText').value);byId('outlineSaved').textContent=window.sermonTools.save()?'Outline saved on this device':'Save failed'}
+document.addEventListener('sermon-changing',()=>clearTimeout(outlineTimer));
+document.addEventListener('sermon-changed',showOutline);
 function originalOutline(text,title) {
   const sentences = text.replace(/\s+/g,' ').split(/[.!?]+/).map(s=>s.trim()).filter(s=>s.length>18);
   if (!sentences.length) return '';
@@ -50,7 +30,7 @@ byId('makeOutline').onclick=()=>{
   byId('outlineHint').textContent='Original outline generated locally. Review and edit before sharing.';
   saveOutline();
 };
-byId('outlineText').addEventListener('input',()=>{byId('outlineSaved').textContent='Saving…';clearTimeout(outlineTimer);outlineTimer=setTimeout(saveOutline,500)});
+byId('outlineText').addEventListener('input',()=>{window.sermonTools.setOutline(byId('outlineText').value);byId('outlineSaved').textContent='Saving…';clearTimeout(outlineTimer);outlineTimer=setTimeout(saveOutline,500)});
 byId('copyOutline').onclick=async()=>{try{await navigator.clipboard.writeText(byId('outlineText').value);byId('outlineHint').textContent='Outline copied.'}catch{byId('outlineHint').textContent='Clipboard unavailable; select the text to copy.'}};
 byId('outlineLocate').onclick=()=>{
   const query=byId('outlineFind').value.trim(),text=byId('outlineTranscript').textContent;
@@ -72,4 +52,4 @@ byId('outlinePDF').onclick=()=>{
   pre.style.whiteSpace='pre-wrap';pre.style.font='14px Georgia,serif';win.document.body.append(heading,pre);win.print();
 };
 document.querySelectorAll('[data-page="outlines"]').forEach(button=>button.addEventListener('click',()=>setTimeout(showOutline,0)));
-byId('save').addEventListener('click',()=>setTimeout(saveOutline,0));
+showOutline();
