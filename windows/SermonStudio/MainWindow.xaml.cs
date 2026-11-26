@@ -35,6 +35,7 @@ public sealed partial class MainWindow : Window
     {
         _loading = true;
         BuildInterface();
+        try { var icon=Path.Combine(AppContext.BaseDirectory,"SermonStudio.ico"); if(File.Exists(icon)) AppWindow.SetIcon(icon); } catch(Exception ex) { System.Diagnostics.Debug.WriteLine("Window icon: "+ex.Message); }
         _autosave = DispatcherQueue.CreateTimer();
         _autosave.Interval = TimeSpan.FromMilliseconds(900);
         _autosave.Tick += (_, _) => { _autosave.Stop(); if (_selectedId != null && !_loading) Save(); };
