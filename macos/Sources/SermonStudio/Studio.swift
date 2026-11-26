@@ -53,6 +53,7 @@ struct StudioView: View {
     @State private var compare = false
     @State private var showOutline = false
     @State private var outlineDraft = ""
+    @AppStorage("outlineUseOllama") private var outlineUseOllama = false
     @State private var outlineSource = ""
     @AppStorage("localOutlineModel") private var localOutlineModel = "llama3.2:3b"
     @State private var generatingAIOutline = false
@@ -311,8 +312,14 @@ struct StudioView: View {
                         DisclosureGroup("Sermon outline editor", isExpanded: $showOutline) {
                             VStack(alignment: .leading, spacing: 10) {
                                 HStack {
-                                    Button("Generate AI outline (offline)") { generateLocalAIOutline() }.disabled(generatingAIOutline)
-                                    Button("Generate basic outline") { generateOutlineDraft() }.disabled(generatingAIOutline)
+                                    Picker("Outline generator", selection: $outlineUseOllama) {
+                                        Text("Original (default)").tag(false)
+                                        Text("Ollama AI (optional)").tag(true)
+                                    }.pickerStyle(.segmented)
+                                    Button("Generate outline") {
+                                        if outlineUseOllama { generateLocalAIOutline() }
+                                        else { generateOutlineDraft() }
+                                    }.disabled(generatingAIOutline)
                                     if generatingAIOutline { ProgressView(); Button("Cancel AI") { outlineTask?.cancel() } }
                                     Button("Copy outline") { NSPasteboard.general.clearContents(); NSPasteboard.general.setString(outlineDraft, forType: .string) }
                                         .disabled(outlineDraft.isEmpty)
@@ -328,7 +335,7 @@ struct StudioView: View {
                                     Text("Edit the outline directly. Copy it to use in your notes. Outline changes are not yet saved in the sermon library.")
                                         .font(.caption).foregroundStyle(.secondary)
                                 } else {
-                                    Text("Use offline AI for a thematic outline, or the basic generator without an AI model. Requires Ollama running locally for AI.")
+                                    Text(outlineUseOllama ? "Ollama runs locally and requires a separately installed model. The original outline generator remains available without Ollama." : "The original transcript-based outline generator works without Ollama or an internet connection.")
                                         .foregroundStyle(.secondary)
                                 }
                                 Button("Collapse outline") { showOutline = false }
@@ -378,7 +385,8 @@ struct StudioView: View {
                     Text(folder.isEmpty ? "Ask when exporting" : folder)
                     Button("Reset export folder") { folder = "" }
                     Divider()
-                    Text("Offline AI sermon outlines").font(.headline)
+                    Text("Optional offline AI sermon outlines").font(.headline)
+                    Toggle("Use Ollama for outlines by default", isOn: $outlineUseOllama)
                     TextField("Ollama model name", text: $localOutlineModel)
                     Text("Install Ollama, run ollama pull llama3.2:3b once, then keep Ollama running. All outline requests go only to 127.0.0.1 on your Mac. Model downloads require internet; generation does not.").font(.caption).foregroundStyle(.secondary)
                     Divider()
