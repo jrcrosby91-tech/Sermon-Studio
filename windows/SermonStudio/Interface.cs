@@ -187,13 +187,13 @@ public sealed partial class MainWindow
             workspace.ColumnDefinitions[1].Width = outline ? new GridLength(1, GridUnitType.Star) : new GridLength(0);
             workspace.ColumnDefinitions[2].Width = library ? new GridLength(transcript || outline ? 230 : 1, transcript || outline ? GridUnitType.Pixel : GridUnitType.Star) : new GridLength(0);
         }
+        Navigate("New sermon", () => { New_Click(this, null!); Show(true,true,true); });
         Navigate("Sermon library", () => Show(false,false,true));
         Navigate("Transcribe audio",()=>Show(true,false,false));
         Navigate("Transcript editor", () => Show(true,false,false));
         Navigate("Sermon outlines", () => Show(true,true,false));
         Navigate("Scripture references",()=>{Show(true,false,true);Scripture_Click(this,null!);});
         Navigate("Full workspace", () => Show(true,true,true));
-        Navigate("New sermon", () => { New_Click(this, null!); Show(true,true,true); });
         Navigate("Settings", () => { Show(false,false,true); scroll.Visibility=Visibility.Collapsed;settingsScroll.Visibility=Visibility.Visible;tools.Visibility=Visibility.Collapsed; });
         var theme = new ComboBox { Header="Appearance" }; theme.Items.Add("System");theme.Items.Add("Light");theme.Items.Add("Dark");theme.SelectedIndex=0;
         var settingsPath=Path.Combine(Path.GetDirectoryName(_libraryPath)!,"appearance.txt");
@@ -215,7 +215,7 @@ public sealed partial class MainWindow
         settings.Children.Add(theme);
         Show(true,true,false);
         PageTitle.Text="Sermon outlines";
-        navButtons[3].Background=gold;navButtons[3].Foreground=navy;
+        navButtons[4].Background=gold;navButtons[4].Foreground=navy;
         SetToolbar("Sermon outlines");
         shell.Children.Add(new ScrollViewer{Content=sidebar,Background=navy,VerticalScrollBarVisibility=ScrollBarVisibility.Auto}); Grid.SetColumn(root,1); shell.Children.Add(root);
         Content = shell;
