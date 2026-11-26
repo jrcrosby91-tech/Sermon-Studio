@@ -52,7 +52,19 @@ public sealed partial class MainWindow
             foreach(var line in Transcript.Text.Replace("\r","").Split('\n')) section.AddParagraph(line);
             if(!string.IsNullOrWhiteSpace(Outline.Text)){
                 section=doc.AddSection();section.AddParagraph("Sermon outline","Heading1");
-                foreach(var line in Outline.Text.Replace("\r","").Split('\n'))section.AddParagraph(line);
+                foreach(var raw in Outline.Text.Replace("\r","").Split('\n')){
+                    var line=raw.Trim();var heading=line.StartsWith("#");var quote=line.StartsWith(">");var bullet=line.StartsWith("- ")||line.StartsWith("* ");
+                    var paragraph=section.AddParagraph();paragraph.Format.SpaceAfter=5;
+                    if(heading){paragraph.Format.Font.Bold=true;paragraph.Format.Font.Size=line.StartsWith("###")?14:17;paragraph.Format.SpaceBefore=10;line=line.TrimStart('#',' ');}
+                    if(quote){paragraph.Format.LeftIndent=18;paragraph.Format.Font.Italic=true;line=line.TrimStart('>',' ');}
+                    if(bullet){paragraph.Format.LeftIndent=18;line="• "+line.Substring(2);}
+                    foreach(var part in Regex.Split(line,@"(\*\*[^*]+\*\*|\*[^*]+\*)")){
+                        if(part.Length==0)continue;
+                        var run=paragraph.AddFormattedText(part.Trim('*'));
+                        if(part.StartsWith("**")&&part.EndsWith("**"))run.Bold=true;
+                        else if(part.StartsWith("*")&&part.EndsWith("*"))run.Italic=true;
+                    }
+                }
             }
             var renderer=new MigraDoc.Rendering.PdfDocumentRenderer{Document=doc};
             renderer.RenderDocument();renderer.PdfDocument.Save(path);
