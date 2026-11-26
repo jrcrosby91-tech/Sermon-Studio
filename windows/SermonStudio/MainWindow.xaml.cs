@@ -29,7 +29,7 @@ public sealed partial class MainWindow : Window
         try
         {
             if (File.Exists(_libraryPath))
-                _library = NormalizeRecords(JsonSerializer.Deserialize<List<SermonRecord?>>(File.ReadAllText(_libraryPath)));
+                _library = NormalizeRecords(JsonSerializer.Deserialize<List<SermonRecord?>>(File.ReadAllText(_libraryPath),ArchiveOptions));
             RefreshLibrary();
         }
         catch (Exception ex)
@@ -86,6 +86,7 @@ public sealed partial class MainWindow : Window
         SermonTitle.Text = item.Title;
         _showCleaned = false; _originalText = item.Original; _cleanedText = item.Cleaned;
         _srt = item.Srt; _vtt = item.Vtt;
+        if(item.Segments is {Count: >0}) { if(_srt.Length==0)_srt=MakeSubtitles(item.Segments,false); if(_vtt.Length==0)_vtt=MakeSubtitles(item.Segments,true); }
         Transcript.Text = item.Original;
         Outline.Text = item.Outline;
         _loading = false;
@@ -176,6 +177,7 @@ public sealed partial class MainWindow : Window
             item.Title = SermonTitle.Text;
             item.Original = _showCleaned ? _originalText : Transcript.Text;
             item.Cleaned = _showCleaned ? Transcript.Text : _cleanedText;
+            if(item.Srt != _srt || item.Segments == null) item.Segments=ParseSegments(_srt);
             item.Srt = _srt; item.Vtt = _vtt;
             item.Outline = Outline.Text;
             if (string.IsNullOrWhiteSpace(item.Date)) item.Date = DateTime.Today.ToString("yyyy-MM-dd");
@@ -213,6 +215,7 @@ public sealed class SermonRecord
     public string Original { get; set; } = "";
     public string Cleaned { get; set; } = "";
     public string Outline { get; set; } = "";
+    public List<SermonSegment>? Segments {get;set;}
     public string Srt { get; set; } = "";
     public string Vtt { get; set; } = "";
 }
