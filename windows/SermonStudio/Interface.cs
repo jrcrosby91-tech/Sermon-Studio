@@ -53,7 +53,11 @@ public sealed partial class MainWindow
         _sermonFavorite=new CheckBox{Content="Favorite",VerticalAlignment=VerticalAlignment.Bottom};top.Children.Add(_sermonFavorite);_sermonFavorite.Checked+=(_,_)=>Editor_TextChanged(_sermonFavorite,null!);_sermonFavorite.Unchecked+=(_,_)=>Editor_TextChanged(_sermonFavorite,null!);
         _speaker.TextChanged+=Editor_TextChanged;_primaryScripture.TextChanged+=Editor_TextChanged;_sermonDate.DateChanged+=(_,_)=>Editor_TextChanged(_sermonDate,null!);
         Generator = new ComboBox { Header = "Outline generator", Width = 180 };
-        Generator.Items.Add("Original (default)"); Generator.Items.Add("Ollama (optional)"); Generator.SelectedIndex = 0;
+        Generator.Items.Add("Original (offline)"); Generator.Items.Add("Ollama (local)");
+        var generatorPreference=Path.Combine(Path.GetDirectoryName(_libraryPath)!,"default-generator.txt");
+        int defaultGenerator=0;
+        try{if(File.Exists(generatorPreference)&&File.ReadAllText(generatorPreference).Trim()=="ollama")defaultGenerator=1;}catch(Exception ex){App.Log("Read generator preference: "+ex.Message);}
+        Generator.SelectedIndex=defaultGenerator;
         ButtonFor(top,"Save sermon",Save_Click); ButtonFor(top,"New",New_Click); var exports=new DropDownButton{Content="Export"};var menu=new MenuFlyout();
         void ExportItem(string label,RoutedEventHandler handler){var item=new MenuFlyoutItem{Text=label};item.Click+=handler;menu.Items.Add(item);}
         ExportItem("Outline • Markdown",Export_Click);ExportItem("PDF document",Pdf_Click);ExportItem("Word, RTF and transcript files",ExportMore_Click);exports.Flyout=menu;top.Children.Add(exports);
@@ -370,6 +374,16 @@ public sealed partial class MainWindow
         var settings=new StackPanel{Spacing=12};
         var settingsScroll=new ScrollViewer{Content=Card(settings),Visibility=Visibility.Collapsed};Grid.SetColumn(settingsScroll,2);workspace.Children.Add(settingsScroll);
         settings.Children.Add(new TextBlock{Text="Transcription and local AI",FontSize=24,FontFamily=new FontFamily("Georgia")});
+        var defaultGeneratorChoice=new ComboBox{Header="Default outline generator",HorizontalAlignment=HorizontalAlignment.Stretch};
+        defaultGeneratorChoice.Items.Add("Original (offline)");defaultGeneratorChoice.Items.Add("Ollama (local)");defaultGeneratorChoice.SelectedIndex=defaultGenerator;
+        settings.Children.Add(defaultGeneratorChoice);
+        settings.Children.Add(new TextBlock{Text="Used when starting the app or a new sermon. You can override it in the outline toolbar.",TextWrapping=TextWrapping.Wrap,Opacity=.75});
+        defaultGeneratorChoice.SelectionChanged+=(_,_)=>{
+            if(defaultGeneratorChoice.SelectedIndex<0)return;
+            defaultGenerator=defaultGeneratorChoice.SelectedIndex;Generator.SelectedIndex=defaultGenerator;
+            try{Directory.CreateDirectory(Path.GetDirectoryName(generatorPreference)!);File.WriteAllText(generatorPreference+".tmp",defaultGenerator==1?"ollama":"original");File.Move(generatorPreference+".tmp",generatorPreference,true);}
+            catch(Exception ex){Status.Text="Could not save generator preference: "+ex.Message;}
+        };
         OllamaModel = Field(settings,"Ollama model","llama3.2:3b",210);
         var aiStatus=new TextBlock{Text="Optional local AI. Model downloads may require several GB.",TextWrapping=TextWrapping.Wrap};
         var setup=new Button{Content="Set up / check Ollama"};
@@ -467,7 +481,7 @@ public sealed partial class MainWindow
             workspace.ColumnDefinitions[1].Width = outline ? new GridLength(transcript?1-split:1, GridUnitType.Star) : new GridLength(0);
             workspace.ColumnDefinitions[2].Width = library ? new GridLength(transcript || outline ? 230 : 1, transcript || outline ? GridUnitType.Pixel : GridUnitType.Star) : new GridLength(0);
         }
-        Navigate("New sermon", () => { New_Click(this, null!); Show(true,true,true); });
+        Navigate("New sermon", () => { New_Click(this, null!); Generator.SelectedIndex=defaultGenerator; Show(true,true,true); });
         Navigate("Sermon library", () => Show(false,false,true));
         Navigate("Transcribe audio",()=>Show(true,false,false));
         Navigate("Transcript editor", () => Show(true,false,false));
