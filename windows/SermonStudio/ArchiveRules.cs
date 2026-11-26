@@ -11,6 +11,7 @@ internal static class ArchiveRules
             if (string.IsNullOrWhiteSpace(r.Id)||!ids.Add(r.Id)){r.Id=Guid.NewGuid().ToString();ids.Add(r.Id);}
             r.Title ??= ""; r.Date ??= ""; r.Original ??= ""; r.Cleaned ??= "";
             r.Outline ??= ""; r.Srt ??= ""; r.Vtt ??= "";
+            r.Speaker ??= ""; r.PrimaryScripture ??= ""; r.Tags ??= ""; r.Series ??= ""; r.Collection ??= "";
             list.Add(r);
         }
         return list;
