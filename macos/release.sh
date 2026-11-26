@@ -6,7 +6,8 @@ BUILD="${2:?Provide increasing build number}"
 [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ && "$BUILD" =~ ^[1-9][0-9]*$ ]]
 command -v gh >/dev/null || { echo "Install GitHub CLI and authenticate with gh auth login"; exit 1; }
 gh auth status
-[[ -z "$(git status --porcelain --untracked-files=no)" ]] || { echo "Commit tracked changes first"; exit 1; }
+# prepare-sparkle.sh intentionally rewrites macos/Package.swift before this runs; ignore that file only.
+[[ -z "$(git status --porcelain --untracked-files=no -- . ':(exclude)macos/Package.swift')" ]] || { echo "Commit tracked changes first"; exit 1; }
 git fetch origin main
 [[ "$(git rev-parse HEAD)" == "$(git rev-parse origin/main)" ]] || { echo "Build from current main"; exit 1; }
 TAG="mac-v$VERSION"

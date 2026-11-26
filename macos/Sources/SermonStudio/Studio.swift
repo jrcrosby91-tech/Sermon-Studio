@@ -22,6 +22,21 @@ struct Sermon: Codable, Identifiable {
     var cleaned: String
     var segments: [SermonSegment]? = nil
     var outline: String? = nil
+    enum CodingKeys: String, CodingKey { case id, title, date, original, cleaned, segments, outline }
+}
+extension Sermon {
+    // Tolerant decoding: older or web-app archives may omit fields. A missing field
+    // must not make the whole library (or an import) fail to load.
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = (try? c.decodeIfPresent(String.self, forKey: .id)) ?? UUID().uuidString
+        title = (try? c.decodeIfPresent(String.self, forKey: .title)) ?? ""
+        date = (try? c.decodeIfPresent(String.self, forKey: .date)) ?? ""
+        original = (try? c.decodeIfPresent(String.self, forKey: .original)) ?? ""
+        cleaned = (try? c.decodeIfPresent(String.self, forKey: .cleaned)) ?? ""
+        segments = (try? c.decodeIfPresent([SermonSegment].self, forKey: .segments)) ?? nil
+        outline = (try? c.decodeIfPresent(String.self, forKey: .outline)) ?? nil
+    }
 }
 struct SermonSegment: Codable, Identifiable {
     var id = UUID()
@@ -31,14 +46,21 @@ struct SermonSegment: Codable, Identifiable {
     var confidence: Double?
 }
 @main struct StudioApp: App {
-    var body: some Scene { WindowGroup("Sermon Studio") { StudioView() }.defaultSize(width: 1100, height: 720) }
+    // One updater for the whole app (Sparkle expects a single updater per bundle).
+    @StateObject private var updates = StudioUpdates()
+    // A single window: each window keeps its own copy of the library, so a second
+    // window (File > New Window) could save over sermons saved in the first.
+    var body: some Scene {
+        Window("Sermon Studio", id: "main") { StudioView().environmentObject(updates) }
+            .defaultSize(width: 1100, height: 720)
+    }
 }
 struct StudioView: View {
     @AppStorage("defaultModel") private var model = "small.en"
     @AppStorage("exportFolder") private var folder = ""
     @State private var page: String? = "New sermon"
     private let studioAccent = Color(red: 0.22, green: 0.38, blue: 0.56)
-    @StateObject private var updates = StudioUpdates()
+    @EnvironmentObject private var updates: StudioUpdates
     @State private var audio: URL?
     @State private var title = ""
     @State private var original = ""
@@ -149,7 +171,8 @@ struct StudioView: View {
         }
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
-        request.timeoutInterval = 240
+        // Non-streaming generation sends nothing until it finishes; slower Macs need longer than 4 minutes.
+        request.timeoutInterval = 600
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         let payload: [String: Any] = [
             "model": localOutlineModel,
@@ -270,11 +293,7 @@ struct StudioView: View {
             case "docx":
                 try exportDOCX(to: destination, text: outlineDraft)
             case "pdf":
-                let text = NSTextView(frame: NSRect(x: 0, y: 0, width: 540, height: 800))
-                text.string = outlineDraft
-                text.font = NSFont.systemFont(ofSize: 13)
-                let data = text.dataWithPDF(inside: text.bounds)
-                try data.write(to: destination, options: .atomic)
+                try savePDF(outlineDraft, fontSize: 13, to: destination)
             default:
                 try outlineDraft.write(to: destination, atomically: true, encoding: .utf8)
             }
@@ -438,6 +457,7 @@ struct StudioView: View {
                                     TextEditor(text: $outlineDraft)
                                         .font(.system(.body, design: .monospaced))
                                         .frame(minHeight: 300)
+                                        .onChange(of: outlineDraft) { _ in scheduleOutlineSave() }
                                     Text("Outline edits automatically save for sermons already in your library.")
                                         .font(.caption).foregroundStyle(.secondary)
                                 } else {
@@ -514,7 +534,19 @@ struct StudioView: View {
                 Spacer()
                 Text(status).foregroundStyle(.secondary).textSelection(.enabled)
             }.padding(24)
-        }.tint(studioAccent).preferredColorScheme(preferredAppearance).onAppear { if let data = try? Data(contentsOf: archiveURL), let items = try? JSONDecoder().decode([Sermon].self, from: data) { library = items } }
+        }.tint(studioAccent).preferredColorScheme(preferredAppearance).onAppear(perform: loadLibrary)
+    }
+    private func loadLibrary() {
+        guard library.isEmpty, FileManager.default.fileExists(atPath: archiveURL.path) else { return }
+        do {
+            library = try JSONDecoder().decode([Sermon].self, from: Data(contentsOf: archiveURL))
+        } catch {
+            // Never let the next save silently replace an archive we could not read.
+            let kept = archiveURL.deletingLastPathComponent()
+                .appendingPathComponent("archive-unreadable-\(Int(Date().timeIntervalSince1970)).json")
+            try? FileManager.default.copyItem(at: archiveURL, to: kept)
+            status = "Sermon library could not be read (" + error.localizedDescription + "). A copy was kept at " + kept.path
+        }
     }
     private func sidebarSymbol(_ item: String) -> String {
         switch item {
@@ -622,7 +654,13 @@ struct StudioView: View {
         try fm.createDirectory(at: temp.appendingPathComponent("_rels"), withIntermediateDirectories: true)
         defer { try? fm.removeItem(at: temp) }
         func xml(_ value: String) -> String {
-            value.replacingOccurrences(of: "&", with: "&amp;")
+            // Drop characters XML 1.0 forbids (stray control codes); Word refuses files containing them.
+            let allowed = value.unicodeScalars.filter { s in
+                s.value == 0x9 || s.value == 0xA || s.value == 0xD || (0x20...0xD7FF).contains(s.value)
+                    || (0xE000...0xFFFD).contains(s.value) || s.value >= 0x10000
+            }
+            return String(String.UnicodeScalarView(allowed))
+                .replacingOccurrences(of: "&", with: "&amp;")
                 .replacingOccurrences(of: "<", with: "&lt;")
                 .replacingOccurrences(of: ">", with: "&gt;")
                 .replacingOccurrences(of: "\"", with: "&quot;")
@@ -658,12 +696,44 @@ struct StudioView: View {
         if fm.fileExists(atPath: destination.path) { try fm.removeItem(at: destination) }
         try fm.moveItem(at: archive, to: destination)
     }
-    func printTranscript() {
-        let view = NSTextView(frame: NSRect(x: 0, y: 0, width: 540, height: 800))
-        view.string = title + "\n\n" + activeText
-        view.font = NSFont.systemFont(ofSize: fontSize)
+    // A text view sized to its full content. The old fixed 800-pt frame cut off
+    // everything after roughly the first page when printing or saving a PDF.
+    private func pagedTextView(_ string: String, fontSize: CGFloat) -> NSTextView {
+        let view = NSTextView(frame: NSRect(x: 0, y: 0, width: 468, height: 10))
+        view.isVerticallyResizable = true
+        view.isHorizontallyResizable = false
+        view.minSize = NSSize(width: 468, height: 0)
+        view.maxSize = NSSize(width: 468, height: CGFloat.greatestFiniteMagnitude)
+        view.textContainer?.containerSize = NSSize(width: 468, height: CGFloat.greatestFiniteMagnitude)
+        view.textContainer?.widthTracksTextView = true
         view.isEditable = false
-        NSPrintOperation(view: view).run()
+        view.string = string
+        view.font = NSFont.systemFont(ofSize: fontSize)
+        view.sizeToFit()
+        return view
+    }
+    private func pagedPrintInfo() -> NSPrintInfo {
+        let info = (NSPrintInfo.shared.copy() as? NSPrintInfo) ?? NSPrintInfo()
+        info.horizontalPagination = .fit
+        info.verticalPagination = .automatic
+        info.isVerticallyCentered = false
+        return info
+    }
+    private func savePDF(_ string: String, fontSize: CGFloat, to destination: URL) throws {
+        let info = pagedPrintInfo()
+        info.jobDisposition = .save
+        info.dictionary()[NSPrintInfo.AttributeKey.jobSavingURL.rawValue] = destination
+        if FileManager.default.fileExists(atPath: destination.path) { try FileManager.default.removeItem(at: destination) }
+        let operation = NSPrintOperation(view: pagedTextView(string, fontSize: fontSize), printInfo: info)
+        operation.showsPrintPanel = false
+        operation.showsProgressPanel = false
+        guard operation.run() else {
+            throw NSError(domain: "SermonStudio.PDF", code: 1, userInfo: [NSLocalizedDescriptionKey: "Could not create PDF."])
+        }
+    }
+    func printTranscript() {
+        let view = pagedTextView(title + "\n\n" + activeText, fontSize: CGFloat(fontSize))
+        NSPrintOperation(view: view, printInfo: pagedPrintInfo()).run()
     }
     func openSermon(_ item: Sermon) {
         selectedID = item.id; title = item.title; original = item.original; cleaned = item.cleaned

@@ -12,18 +12,18 @@ jobs:
     runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
-      - name: Compile Apple Silicon application
-        working-directory: macos
-        run: swift build -c release --arch arm64
-      - name: Package app and disk image
-        run: |
-          mkdir -p "dist/Sermon Studio.app/Contents/MacOS"
-          cp macos/.build/arm64-apple-macosx/release/SermonStudio "dist/Sermon Studio.app/Contents/MacOS/"
-          cp macos/Info.plist "dist/Sermon Studio.app/Contents/Info.plist"
-          codesign --force --sign - "dist/Sermon Studio.app"
-          ln -s /Applications dist/Applications
-          hdiutil create -volname "Sermon Studio" -srcfolder dist -ov -format UDZO Sermon-Studio-macOS-arm64.dmg
+      # Use the same packaging script as releases. Packaging only the bare executable
+      # left out Sparkle.framework (the app could not launch), the icon and resource bundles.
+      - name: Compile and package Apple Silicon application
+        env:
+          CI: '1'
+        run: bash macos/build-local.sh
       - uses: actions/upload-artifact@v4
+        if: always()
         with:
           name: Sermon-Studio-macOS-arm64
-          path: Sermon-Studio-macOS-arm64.dmg
+          path: |
+            macos/dist/Sermon-Studio-macOS-arm64.dmg
+            macos/dist/Sermon-Studio-macOS-arm64.zip
+            macos/dist/build.log
+          if-no-files-found: warn

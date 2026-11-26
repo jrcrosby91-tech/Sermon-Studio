@@ -15,7 +15,9 @@ concurrency:
   cancel-in-progress: false
 jobs:
   publish:
-    runs-on: macos-15-arm64
+    # "macos-15-arm64" is not a GitHub-hosted runner label, so runs queued forever.
+    # macos-15 is Apple Silicon (arm64).
+    runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
         with:
