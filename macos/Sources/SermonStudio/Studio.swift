@@ -37,6 +37,7 @@ struct StudioView: View {
     @AppStorage("defaultModel") private var model = "small.en"
     @AppStorage("exportFolder") private var folder = ""
     @State private var page: String? = "New sermon"
+    private let studioAccent = Color(red: 0.22, green: 0.38, blue: 0.56)
     @StateObject private var updates = StudioUpdates()
     @State private var audio: URL?
     @State private var title = ""
@@ -331,10 +332,25 @@ struct StudioView: View {
     private var archiveURL: URL { FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("SermonStudio/archive.json") }
     var body: some View {
         NavigationSplitView {
-            List(["Dashboard", "New sermon", "Transcript editor", "Sermon outlines", "Sermon library", "Settings"], id: \.self, selection: $page) { Text($0).tag($0) }
+            List(["Dashboard", "New sermon", "Transcript editor", "Sermon outlines", "Sermon library", "Settings"], id: \.self, selection: $page) { item in
+                Label(item, systemImage: sidebarSymbol(item)).tag(item)
+            }
+            .listStyle(.sidebar)
+            .navigationTitle("Sermon Studio")
         } detail: {
             VStack(alignment: .leading, spacing: 16) {
-                Text(page ?? "New sermon").font(.largeTitle.bold())
+                HStack(spacing: 12) {
+                    Image(systemName: sidebarSymbol(page ?? "New sermon"))
+                        .font(.title2).foregroundStyle(studioAccent)
+                        .frame(width: 42, height: 42)
+                        .background(studioAccent.opacity(0.10), in: RoundedRectangle(cornerRadius: 12))
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(page ?? "New sermon").font(.system(.largeTitle, design: .serif).bold())
+                        Text("A thoughtful space for preparing and organizing sermons")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+                }
+                Divider()
                 if page == "Dashboard" {
                     Text("\(library.count) saved sermons").font(.title2)
                     Text("Recent sermons").font(.headline)
@@ -498,7 +514,17 @@ struct StudioView: View {
                 Spacer()
                 Text(status).foregroundStyle(.secondary).textSelection(.enabled)
             }.padding(24)
-        }.preferredColorScheme(preferredAppearance).onAppear { if let data = try? Data(contentsOf: archiveURL), let items = try? JSONDecoder().decode([Sermon].self, from: data) { library = items } }
+        }.tint(studioAccent).preferredColorScheme(preferredAppearance).onAppear { if let data = try? Data(contentsOf: archiveURL), let items = try? JSONDecoder().decode([Sermon].self, from: data) { library = items } }
+    }
+    private func sidebarSymbol(_ item: String) -> String {
+        switch item {
+        case "Dashboard": return "square.grid.2x2"
+        case "New sermon": return "waveform"
+        case "Transcript editor": return "doc.text"
+        case "Sermon outlines": return "text.book.closed"
+        case "Sermon library": return "books.vertical"
+        default: return "gearshape"
+        }
     }
     var modelPicker: some View { Picker("Default model", selection: $model) { ForEach(models, id: \.self) { Text($0).tag($0) } }.disabled(busy) }
     func chooseAudio() {
