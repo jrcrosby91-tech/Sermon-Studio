@@ -27,9 +27,6 @@
   <ItemGroup>
     <Content Include="SermonStudio.ico" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
   </ItemGroup>
-  <Target Name="GenerateSermonStudioIcon" BeforeTargets="PrepareForBuild" Inputs="$(MSBuildProjectDirectory)\GenerateIcon.ps1" Outputs="$(ApplicationIcon)">
-    <Exec Command="powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File &quot;$(MSBuildProjectDirectory)\GenerateIcon.ps1&quot; -OutputPath &quot;$(ApplicationIcon)&quot;" />
-  </Target>
 
   <!-- Safety net: make sure the generated resource index always lands in the publish folder. -->
   <Target Name="EnsurePriInPublish" AfterTargets="Publish">
