@@ -18,6 +18,9 @@ public sealed partial class MainWindow : Window
     private List<SermonRecord> _library = new();
     private string? _selectedId;
     private bool _loading;
+    private CalendarDatePicker? _sermonDate;
+    private TextBox? _speaker, _primaryScripture;
+    private TextBlock? _saveIndicator;
 
     public MainWindow()
     {
@@ -84,6 +87,10 @@ public sealed partial class MainWindow : Window
         if (LibraryList.SelectedItem is not SermonRecord current || current.Id != item.Id)
             LibraryList.SelectedItem = (LibraryList.ItemsSource as IEnumerable<SermonRecord>)?.FirstOrDefault(x => x.Id == item.Id);
         SermonTitle.Text = item.Title;
+        if(_sermonDate!=null) _sermonDate.Date=DateTimeOffset.TryParse(item.Date,out var date)?date:null;
+        if(_speaker!=null) _speaker.Text=item.Speaker??"";
+        if(_primaryScripture!=null) _primaryScripture.Text=item.PrimaryScripture??"";
+        if(_saveIndicator!=null) _saveIndicator.Text="Saved in library";
         _showCleaned = false; _originalText = item.Original; _cleanedText = item.Cleaned;
         _srt = item.Srt; _vtt = item.Vtt;
         if(item.Segments is {Count: >0}) { if(_srt.Length==0)_srt=MakeSubtitles(item.Segments,false); if(_vtt.Length==0)_vtt=MakeSubtitles(item.Segments,true); }
@@ -100,6 +107,10 @@ public sealed partial class MainWindow : Window
         _selectedId = null;
         LibraryList.SelectedItem = null;
         SermonTitle.Text = "Untitled sermon";
+        if(_sermonDate!=null) _sermonDate.Date=DateTimeOffset.Now;
+        if(_speaker!=null) _speaker.Text="";
+        if(_primaryScripture!=null) _primaryScripture.Text="";
+        if(_saveIndicator!=null) _saveIndicator.Text="Unsaved draft";
         _showCleaned = false; _originalText = ""; _cleanedText = ""; _srt = ""; _vtt = "";
         Transcript.Text = "";
         Outline.Text = "";
@@ -155,6 +166,7 @@ public sealed partial class MainWindow : Window
     private void Editor_TextChanged(object sender, TextChangedEventArgs e)
     {
         if (_loading) return;
+        if(_saveIndicator!=null) _saveIndicator.Text=_selectedId==null?"Unsaved draft":"Saving changes…";
         if (_selectedId == null) { Status.Text = "Unsaved draft — select Save sermon."; return; }
         Status.Text = "Saving changes…";
         _autosave.Stop();
@@ -175,6 +187,9 @@ public sealed partial class MainWindow : Window
                 _selectedId = item.Id;
             }
             item.Title = SermonTitle.Text;
+            if(_sermonDate?.Date is DateTimeOffset date) item.Date=date.ToString("yyyy-MM-dd");
+            if(_speaker!=null) item.Speaker=_speaker.Text;
+            if(_primaryScripture!=null) item.PrimaryScripture=_primaryScripture.Text;
             item.Original = _showCleaned ? _originalText : Transcript.Text;
             item.Cleaned = _showCleaned ? Transcript.Text : _cleanedText;
             if(item.Srt != _srt || item.Segments == null) item.Segments=ParseSegments(_srt);
@@ -186,8 +201,9 @@ public sealed partial class MainWindow : Window
             File.Move(_libraryPath + ".tmp", _libraryPath, true);
             RefreshLibrary();
             Status.Text = "Sermon and outline saved locally.";
+            if(_saveIndicator!=null) _saveIndicator.Text="Saved at "+DateTime.Now.ToString("t");
         }
-        catch (Exception ex) { Status.Text = "Save failed: " + ex.Message; }
+        catch (Exception ex) { Status.Text = "Save failed: " + ex.Message; if(_saveIndicator!=null) _saveIndicator.Text="Save failed"; }
     }
 
     private void Export_Click(object sender, RoutedEventArgs e)
@@ -212,6 +228,8 @@ public sealed class SermonRecord
     public string Id { get; set; } = Guid.NewGuid().ToString();
     public string Title { get; set; } = "";
     public string Date { get; set; } = "";
+    public string Speaker { get; set; } = "";
+    public string PrimaryScripture { get; set; } = "";
     public string Original { get; set; } = "";
     public string Cleaned { get; set; } = "";
     public string Outline { get; set; } = "";
