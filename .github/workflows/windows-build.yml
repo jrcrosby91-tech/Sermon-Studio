@@ -32,8 +32,40 @@ jobs:
         with:
           dotnet-version: '10.0.x'
 
-      - name: Show SDK information
-        run: dotnet --info
+      - name: Pin installed .NET 10 SDK
+        run: |
+          $sdk = dotnet --list-sdks | ForEach-Object { ($_ -split ' ')[0] } | Where-Object { $_ -match '^10\.0\.\d+
+
+      - name: Restore Windows dependencies
+        run: dotnet restore windows/SermonStudio/SermonStudio.csproj -p:Platform=x64 -p:RuntimeIdentifier=win-x64
+
+      - name: Build Windows application
+        run: |
+          dotnet build windows/SermonStudio/SermonStudio.csproj --configuration Release --no-restore -p:Platform=x64 -p:RuntimeIdentifier=win-x64 -p:GenerateAppxPackageOnBuild=false
+
+      - name: Publish runnable Windows x64 application
+        run: |
+          dotnet publish windows/SermonStudio/SermonStudio.csproj --configuration Release --runtime win-x64 --self-contained true -p:Platform=x64 -p:WindowsAppSDKSelfContained=true -p:WindowsPackageType=None -p:PublishSingleFile=false -p:GenerateAppxPackageOnBuild=false -p:PublishDir="${{ github.workspace }}\\windows-publish\\"
+          if ($LASTEXITCODE -ne 0) { throw "dotnet publish failed" }
+          if (!(Test-Path "windows-publish/SermonStudio.exe")) {
+            throw "Windows executable missing from published output."
+          }
+
+      - name: Create portable ZIP with executable and dependencies
+        run: |
+          Compress-Archive -Path "windows-publish/*" -DestinationPath "Sermon-Studio-Windows-x64-portable.zip" -Force
+
+      - name: Upload executable package
+        uses: actions/upload-artifact@v4
+        with:
+          name: Sermon-Studio-Windows-x64-portable
+          path: Sermon-Studio-Windows-x64-portable.zip
+          if-no-files-found: error
+          retention-days: 14
+ } | Sort-Object { [version]$_ } | Select-Object -Last 1
+          if (!$sdk) { throw "No .NET 10 SDK installed" }
+          @{ sdk = @{ version = $sdk; rollForward = 'disable' } } | ConvertTo-Json | Set-Content global.json
+          dotnet --info
 
       - name: Restore Windows dependencies
         run: dotnet restore windows/SermonStudio/SermonStudio.csproj -p:Platform=x64 -p:RuntimeIdentifier=win-x64
