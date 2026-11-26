@@ -371,25 +371,27 @@ public sealed partial class MainWindow
         var archivePanel=new StackPanel{Spacing=6};ButtonFor(archivePanel,"Export all sermons",(_,_)=>BulkArchive(false));ButtonFor(archivePanel,"Export filtered sermons",(_,_)=>BulkArchive(true));ButtonFor(archivePanel,"Backup library",Backup_Click);ButtonFor(archivePanel,"Restore library",Restore_Click);
         side.Children.Add(new Expander{Header="Archive and backup",Content=archivePanel,HorizontalAlignment=HorizontalAlignment.Stretch});
         ButtonFor(side,"Open selected sermon",(_,_)=>{if(LibraryList.SelectedItem is SermonRecord)openLibrarySermon?.Invoke();else Status.Text="Select a sermon first.";});
-        var settings=new StackPanel{Spacing=12};
-        var settingsScroll=new ScrollViewer{Content=Card(settings),Visibility=Visibility.Collapsed};Grid.SetColumn(settingsScroll,2);workspace.Children.Add(settingsScroll);
-        settings.Children.Add(new TextBlock{Text="Transcription and local AI",FontSize=24,FontFamily=new FontFamily("Georgia")});
+        var settings=new StackPanel{Spacing=16,MaxWidth=880,HorizontalAlignment=HorizontalAlignment.Stretch};
+        StackPanel SettingsSection(string title,string description){var panel=new StackPanel{Spacing=10};panel.Children.Add(new TextBlock{Text=title,FontSize=22,FontFamily=new FontFamily("Georgia")});panel.Children.Add(new TextBlock{Text=description,TextWrapping=TextWrapping.Wrap,Opacity=.75});settings.Children.Add(Card(panel));return panel;}
+        var aiPanel=SettingsSection("Outline generation","Choose the default generator and configure local AI.");
+        var settingsScroll=new ScrollViewer{Content=settings,Visibility=Visibility.Collapsed,HorizontalScrollMode=ScrollMode.Disabled,VerticalScrollBarVisibility=ScrollBarVisibility.Auto};Grid.SetColumn(settingsScroll,2);workspace.Children.Add(settingsScroll);
+
         var defaultGeneratorChoice=new ComboBox{Header="Default outline generator",HorizontalAlignment=HorizontalAlignment.Stretch};
         defaultGeneratorChoice.Items.Add("Original (offline)");defaultGeneratorChoice.Items.Add("Ollama (local)");defaultGeneratorChoice.SelectedIndex=defaultGenerator;
-        settings.Children.Add(defaultGeneratorChoice);
-        settings.Children.Add(new TextBlock{Text="Used when starting the app or a new sermon. You can override it in the outline toolbar.",TextWrapping=TextWrapping.Wrap,Opacity=.75});
+        aiPanel.Children.Add(defaultGeneratorChoice);
+        aiPanel.Children.Add(new TextBlock{Text="Used when starting the app or a new sermon. You can override it in the outline toolbar.",TextWrapping=TextWrapping.Wrap,Opacity=.75});
         defaultGeneratorChoice.SelectionChanged+=(_,_)=>{
             if(defaultGeneratorChoice.SelectedIndex<0)return;
             defaultGenerator=defaultGeneratorChoice.SelectedIndex;Generator.SelectedIndex=defaultGenerator;
             try{Directory.CreateDirectory(Path.GetDirectoryName(generatorPreference)!);File.WriteAllText(generatorPreference+".tmp",defaultGenerator==1?"ollama":"original");File.Move(generatorPreference+".tmp",generatorPreference,true);}
             catch(Exception ex){Status.Text="Could not save generator preference: "+ex.Message;}
         };
-        OllamaModel = Field(settings,"Ollama model","llama3.2:3b",210);
+        OllamaModel = Field(aiPanel,"Ollama model","llama3.2:3b",360);
         var aiStatus=new TextBlock{Text="Optional local AI. Model downloads may require several GB.",TextWrapping=TextWrapping.Wrap};
         var setup=new Button{Content="Set up / check Ollama"};
         var cancelSetup=new Button{Content="Cancel setup",IsEnabled=false};
         System.Threading.CancellationTokenSource? setupCancel=null;
-        settings.Children.Add(setup);settings.Children.Add(cancelSetup);settings.Children.Add(aiStatus);
+        var aiButtons=new ResponsiveToolbar();aiButtons.Children.Add(setup);aiButtons.Children.Add(cancelSetup);aiPanel.Children.Add(aiButtons);aiPanel.Children.Add(aiStatus);
         cancelSetup.Click+=(_,_)=>setupCancel?.Cancel();
         setup.Click+=async(_,_)=>{
             setup.IsEnabled=false;cancelSetup.IsEnabled=true;setupCancel=new();
@@ -424,13 +426,22 @@ public sealed partial class MainWindow
                 aiStatus.Text="Ready: "+model+" is available locally.";
             }catch(OperationCanceledException){aiStatus.Text="Setup canceled.";}catch(Exception ex){aiStatus.Text="Setup failed: "+ex.Message;}finally{setupCancel.Dispose();setupCancel=null;setup.IsEnabled=true;cancelSetup.IsEnabled=false;}
         };
-        WhisperPath = Field(settings,"Whisper CLI executable","",210);
-        WhisperModel = Field(settings,"GGML model file","",210);
-        FfmpegPath = Field(settings,"FFmpeg executable","",210);
-        ButtonFor(settings,"Backup archive",Backup_Click); ButtonFor(settings,"Restore archive",Restore_Click);
+        var transcriptionPanel=SettingsSection("Offline transcription","Choose a Whisper model. Larger models typically improve accuracy but require more memory and processing time.");
+        var enginePanel=new StackPanel{Spacing=10};
+        WhisperPath = Field(enginePanel,"Whisper CLI executable","",double.NaN);
+        WhisperModel = Field(enginePanel,"GGML model file","",double.NaN);
+        FfmpegPath = Field(enginePanel,"FFmpeg executable","",double.NaN);
+        foreach(var field in new[]{WhisperPath,WhisperModel,FfmpegPath})field.HorizontalAlignment=HorizontalAlignment.Stretch;
+        var storagePanel=SettingsSection("Storage and backup","Manage your local sermon archive and compatible exports.");
+        var storageButtons=new ResponsiveToolbar();storagePanel.Children.Add(storageButtons);
+        ButtonFor(storageButtons,"Backup archive",Backup_Click);ButtonFor(storageButtons,"Restore archive",Restore_Click);ButtonFor(storageButtons,"Export Mac-compatible archive",MacArchive_Click);
+        var utilities=SettingsSection("Sermon utilities","Tools for the currently open sermon.");
+        var utilityButtons=new ResponsiveToolbar();utilities.Children.Add(utilityButtons);
+        ButtonFor(utilityButtons,"Compare transcripts",Compare_Click);ButtonFor(utilityButtons,"Show timestamps",Timestamps_Click);ButtonFor(utilityButtons,"Print / Save PDF",Pdf_Click);
         side.Children.Add(new TextBlock { Text = "Scripture references" });
         ScriptureResults = new TextBlock { TextWrapping = TextWrapping.Wrap, IsTextSelectionEnabled = true }; side.Children.Add(ScriptureResults);
-        ConfigureTools(settings);
+        ConfigureTools(transcriptionPanel);
+        transcriptionPanel.Children.Add(new Expander{Header="Advanced engine paths",Content=enginePanel,HorizontalAlignment=HorizontalAlignment.Stretch});
         Status = new TextBlock { Text = "Ready", TextWrapping = TextWrapping.Wrap };
         var footer=new Grid{ColumnSpacing=12};footer.ColumnDefinitions.Add(new ColumnDefinition{Width=new GridLength(1,GridUnitType.Star)});footer.ColumnDefinitions.Add(new ColumnDefinition{Width=GridLength.Auto});
         var counts=new TextBlock{Opacity=.75};footer.Children.Add(Status);
@@ -515,7 +526,7 @@ public sealed partial class MainWindow
         void ApplyEditorSize(){if(fontChoice.SelectedItem is int size){Transcript.FontSize=size;Outline.FontSize=size;rich.FontSize=size;}}
         ApplyEditorSize();fontChoice.SelectionChanged+=(_,_)=>{ApplyEditorSize();try{Directory.CreateDirectory(Path.GetDirectoryName(fontPath)!);File.WriteAllText(fontPath,fontChoice.SelectedItem?.ToString()??"17");}catch{}};
         appearancePanel.Children.Add(fontChoice);
-        settings.Children.Insert(0,new Expander{Header="Appearance and accessibility",Content=appearancePanel,IsExpanded=true,HorizontalAlignment=HorizontalAlignment.Stretch});
+        appearancePanel.Children.Insert(0,new TextBlock{Text="Appearance and accessibility",FontSize=22,FontFamily=new FontFamily("Georgia")});settings.Children.Insert(0,Card(appearancePanel));
         var updatePanel=new StackPanel{Spacing=8};
         var autoCheck=new CheckBox{Content="Check for updates on startup",IsChecked=false};
         var updatePrefs=Path.Combine(Path.GetDirectoryName(_libraryPath)!,"auto-update-check.txt");
@@ -524,13 +535,13 @@ public sealed partial class MainWindow
         autoCheck.Checked+=(_,_)=>SaveUpdatePreference();autoCheck.Unchecked+=(_,_)=>SaveUpdatePreference();
         updatePanel.Children.Add(autoCheck);_updateNotice=new TextBlock{Text="Updates require your approval.",TextWrapping=TextWrapping.Wrap};updatePanel.Children.Add(_updateNotice);
         ButtonFor(updatePanel,"Check now",Updates_Click);
-        settings.Children.Add(new Expander{Header="Updates",Content=updatePanel,IsExpanded=true,HorizontalAlignment=HorizontalAlignment.Stretch});
+        updatePanel.Children.Insert(0,new TextBlock{Text="Updates",FontSize=22,FontFamily=new FontFamily("Georgia")});settings.Children.Add(Card(updatePanel));
         var about=new StackPanel{Spacing=8};var tagPath=Path.Combine(AppContext.BaseDirectory,"build-tag.txt");string build="Development build";try{if(File.Exists(tagPath))build=File.ReadAllText(tagPath).Trim();}catch{}
         about.Children.Add(new TextBlock{Text="Sermon Studio · Windows\n"+build,TextWrapping=TextWrapping.Wrap});
         about.Children.Add(new TextBlock{Text="Local library: "+_libraryPath,TextWrapping=TextWrapping.Wrap,IsTextSelectionEnabled=true});
         ButtonFor(about,"Open library folder",(_,_)=>{try{var folder=Path.GetDirectoryName(_libraryPath)!;Directory.CreateDirectory(folder);System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(folder){UseShellExecute=true});}catch(Exception ex){Status.Text=ex.Message;}});
         about.Children.Add(new TextBlock{Text="Ctrl+S Save · Ctrl+F Find · Ctrl+L Library · F11 Full screen · Esc Exit focus",TextWrapping=TextWrapping.Wrap});
-        settings.Children.Add(new Expander{Header="About and keyboard shortcuts",Content=about,HorizontalAlignment=HorizontalAlignment.Stretch});
+        about.Children.Insert(0,new TextBlock{Text="About and keyboard shortcuts",FontSize=22,FontFamily=new FontFamily("Georgia")});settings.Children.Add(Card(about));
         Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(Transcript,"Sermon transcript editor");
         Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(rich,"Visual sermon outline editor");
         Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(FindText,"Find transcript text");
