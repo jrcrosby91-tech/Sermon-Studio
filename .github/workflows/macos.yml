@@ -53,6 +53,32 @@ jobs:
             macos/build.log
             macos/test.log
             macos/launch.log
+  # Cross-builds the arm64 release bundle on Intel and verifies its structure (no launch).
+  package-check:
+    runs-on: macos-15-intel
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build and package arm64 app
+        run: CI=1 SERMON_ALLOW_CROSS_BUILD=1 SERMON_VERSION=3.3.0 SERMON_BUILD_NUMBER=9 bash macos/build-local.sh
+      - name: Verify bundle
+        run: |
+          set -euo pipefail
+          rm -rf /tmp/verify && mkdir /tmp/verify
+          ditto -x -k macos/dist/Sermon-Studio-macOS-arm64.zip /tmp/verify
+          APP="/tmp/verify/Sermon Studio.app"
+          test -x "$APP/Contents/MacOS/SermonStudio"
+          test -s "$APP/Contents/Resources/SermonStudio.icns"
+          test -d "$APP/Contents/Frameworks/Sparkle.framework"
+          ls "$APP/Contents/Resources"
+          plutil -p "$APP/Contents/Info.plist"
+          test "$(lipo -archs "$APP/Contents/MacOS/SermonStudio")" = arm64
+          otool -l "$APP/Contents/MacOS/SermonStudio" | grep -q '@executable_path/../Frameworks'
+          codesign --verify --strict --verbose=2 "$APP"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APP/Contents/Info.plist")" = 3.3.0
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$APP/Contents/Info.plist")" = 9
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$APP/Contents/Info.plist")" = com.sermonstudio.mac
+          /usr/libexec/PlistBuddy -c 'Print :SUPublicEDKey' "$APP/Contents/Info.plist"
+          echo "Bundle verified."
   # Apple Silicon release packaging and a startup smoke test.
   package:
     runs-on: macos-15

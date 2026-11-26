@@ -5,7 +5,8 @@ mkdir -p dist
 LOG="$PWD/dist/build.log"
 exec > >(tee "$LOG") 2>&1
 trap 'echo "Build failed. See $LOG" >&2' ERR
-[[ "$(uname -s)" == Darwin && "$(uname -m)" == arm64 ]] || { echo "Run on an Apple Silicon Mac."; exit 1; }
+# SERMON_ALLOW_CROSS_BUILD lets CI verify packaging on an Intel Mac; the app itself is always built for arm64.
+[[ "$(uname -s)" == Darwin && ( "$(uname -m)" == arm64 || -n "${SERMON_ALLOW_CROSS_BUILD:-}" ) ]] || { echo "Run on an Apple Silicon Mac."; exit 1; }
 if ! xcode-select -p >/dev/null 2>&1; then
   echo "Install Apple command line tools, then rerun this script."
   xcode-select --install
