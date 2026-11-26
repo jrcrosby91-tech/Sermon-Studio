@@ -178,6 +178,7 @@ public sealed partial class MainWindow : Window
         {
             if (_autosave.IsRunning) { _autosave.Stop(); Save(); }
             _transcription?.Cancel();
+            KillRunningEngines();
             _modelDownload?.Cancel();
             _generation?.Cancel();
             if (_player != null) { _player.Pause(); _player.Source = null; _player.Dispose(); _player = null; }

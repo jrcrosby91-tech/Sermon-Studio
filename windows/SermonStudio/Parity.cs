@@ -93,18 +93,31 @@ public sealed partial class MainWindow
             foreach(var ext in new[]{".wav",".txt",".srt",".vtt"}) try { File.Delete(output+ext); } catch {}
         }
     }
+    private static readonly HashSet<Process> RunningEngines = new();
+    /// <summary>Synchronously stops Whisper/FFmpeg processes; used at shutdown when async continuations may never run.</summary>
+    private static void KillRunningEngines()
+    {
+        Process[] running;
+        lock (RunningEngines) running = RunningEngines.ToArray();
+        foreach (var process in running) { try { if (!process.HasExited) process.Kill(true); } catch { } }
+    }
     private static async Task RunLocal(string exe, string[] args, CancellationToken token)
     {
         var info = new ProcessStartInfo(exe){UseShellExecute=false,CreateNoWindow=true,RedirectStandardError=true,RedirectStandardOutput=true};
         foreach(var arg in args) info.ArgumentList.Add(arg);
         using var process = Process.Start(info) ?? throw new InvalidOperationException("Unable to start local engine.");
+        lock (RunningEngines) RunningEngines.Add(process);
+        // Kill as soon as cancellation is requested, independent of the awaiting thread.
+        using var kill = token.Register(() => { try { if (!process.HasExited) process.Kill(true); } catch { } });
+        try {
         var stderr = process.StandardError.ReadToEndAsync();
         var stdout = process.StandardOutput.ReadToEndAsync();
         try { await process.WaitForExitAsync(token); }
-        catch(OperationCanceledException) { if(!process.HasExited) process.Kill(true); await process.WaitForExitAsync(); throw; }
+        catch(OperationCanceledException) { try { if(!process.HasExited) process.Kill(true); } catch { } await process.WaitForExitAsync(); throw; }
         await stdout;
         var error = await stderr;
         if(process.ExitCode!=0) throw new InvalidOperationException(error.Length>1500?error[^1500..]:error);
+        } finally { lock (RunningEngines) RunningEngines.Remove(process); }
     }
     private void Cancel_Click(object sender,RoutedEventArgs e) => _transcription?.Cancel();
     private void Clean_Click(object sender,RoutedEventArgs e)
