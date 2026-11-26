@@ -33,6 +33,23 @@ jobs:
           if (!(Test-Path "windows-publish/SermonStudio.exe")) { throw "Windows executable missing from published output." }
           # WinUI cannot load XAML or theme resources without the app's resource index.
           if (!(Test-Path "windows-publish/SermonStudio.pri") -and !(Test-Path "windows-publish/resources.pri")) { throw "SermonStudio.pri missing from published output; the app would crash at startup." }
+      - name: Bundle local transcription engines
+        run: |
+          $engine = "$env:GITHUB_WORKSPACE/windows-publish/engines"
+          New-Item -ItemType Directory -Force "$engine/whisper", "$engine/ffmpeg" | Out-Null
+          $release = Invoke-RestMethod "https://api.github.com/repos/ggml-org/whisper.cpp/releases/tags/v1.7.6"
+          $asset = $release.assets | Where-Object { $_.name -eq "whisper-bin-x64.zip" } | Select-Object -First 1
+          if (!$asset) { throw "Pinned Whisper x64 asset unavailable" }
+          Invoke-WebRequest $asset.browser_download_url -OutFile "$env:RUNNER_TEMP/whisper.zip"
+          Expand-Archive "$env:RUNNER_TEMP/whisper.zip" "$engine/whisper" -Force
+          Invoke-WebRequest "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip" -OutFile "$env:RUNNER_TEMP/ffmpeg.zip"
+          Expand-Archive "$env:RUNNER_TEMP/ffmpeg.zip" "$engine/ffmpeg" -Force
+          foreach ($name in @("whisper-cli.exe","ffmpeg.exe")) {
+            if (!(Get-ChildItem $engine -Recurse -Filter $name)) { throw "Missing engine: $name" }
+          }
+          Invoke-WebRequest "https://raw.githubusercontent.com/ggml-org/whisper.cpp/v1.7.6/LICENSE" -OutFile "$engine/whisper/LICENSE.txt"
+          "FFmpeg distribution: https://www.gyan.dev/ffmpeg/builds/ ; upstream source: https://ffmpeg.org/download.html ; retain included license notices." | Set-Content "$engine/ffmpeg/SOURCE.txt"
+          "windows-test-${{ github.run_number }}-${{ github.run_attempt }}" | Set-Content "windows-publish/build-tag.txt"
       - name: Create portable ZIP
         run: Compress-Archive -Path "windows-publish/*" -DestinationPath "Sermon-Studio-Windows-x64-portable.zip" -Force
       - name: Upload executable package
@@ -66,4 +83,4 @@ jobs:
             --target "$COMMIT" \
             --title "Sermon Studio Windows Test Build ${TAG#windows-test-}" \
             --prerelease --latest=false \
-            --notes "Experimental Windows x64 portable build. Extract the entire ZIP and launch SermonStudio.exe. Unsigned; runtime testing is still required. Offline transcription requires separately configured whisper.cpp and model files; FFmpeg is needed for non-WAV recordings. Ollama is optional. This release does not replace the macOS stable release."
+            --notes "Experimental Windows x64 portable build. Extract the entire ZIP and launch SermonStudio.exe. Unsigned; runtime testing is still required. Whisper and FFmpeg are bundled; download a model inside the application. Ollama is optional. This release does not replace the macOS stable release."
