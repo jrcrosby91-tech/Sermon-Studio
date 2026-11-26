@@ -29,6 +29,20 @@ jobs:
       - name: Run SermonCore tests
         working-directory: macos
         run: swift test --skip-build 2>&1 | tee test.log; exit ${PIPESTATUS[0]}
+      - name: Startup smoke test (debug build)
+        working-directory: macos
+        run: |
+          set -euo pipefail
+          # Seed an archive from another platform so startup also exercises loading and migration.
+          mkdir -p "$HOME/Library/Application Support/SermonStudio"
+          cp Tests/SermonCoreTests/Fixtures/windows-library.json "$HOME/Library/Application Support/SermonStudio/archive.json"
+          .build/debug/SermonStudio > launch.log 2>&1 &
+          PID=$!
+          sleep 25
+          if kill -0 "$PID" 2>/dev/null; then echo "App is running after 25 s (pid $PID)"; kill "$PID"; else echo "App exited during startup"; cat launch.log; exit 1; fi
+          # The seeded archive must be untouched by simply launching (no silent rewrite or data loss).
+          cmp Tests/SermonCoreTests/Fixtures/windows-library.json "$HOME/Library/Application Support/SermonStudio/archive.json"
+          echo "Archive unchanged by startup."
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -36,6 +50,7 @@ jobs:
           path: |
             macos/build.log
             macos/test.log
+            macos/launch.log
   # Apple Silicon release packaging and a startup smoke test.
   package:
     runs-on: macos-15
