@@ -172,28 +172,69 @@ public sealed partial class MainWindow
         var formatBar=new StackPanel{Orientation=Orientation.Horizontal,Spacing=6};
         var formatScroll=new ScrollViewer{Content=formatBar,HorizontalScrollMode=ScrollMode.Enabled,HorizontalScrollBarVisibility=ScrollBarVisibility.Auto,VerticalScrollMode=ScrollMode.Disabled};
         Grid.SetRow(formatScroll,1);outlinePanel.Children.Add(formatScroll);
-        void OutlineEdit(){previewScroll.Visibility=Visibility.Collapsed;Outline.Visibility=Visibility.Visible;previewToggle.Content="Formatted view";Outline.Focus(FocusState.Programmatic);}
-        void WrapSelection(string prefix,string suffix,string sample){
-            OutlineEdit();int start=Outline.SelectionStart;var selected=Outline.SelectedText;if(string.IsNullOrEmpty(selected))selected=sample;
-            Outline.SelectedText=prefix+selected+suffix;Outline.Select(start+prefix.Length,selected.Length);
+        var rich=new RichEditBox{FontFamily=new FontFamily("Georgia"),FontSize=17,TextWrapping=TextWrapping.Wrap,Visibility=Visibility.Collapsed};
+        Grid.SetRow(rich,2);outlinePanel.Children.Add(rich);
+        bool syncingOutline=false;
+        void LoadVisual(){
+            if(syncingOutline)return;syncingOutline=true;
+            try{
+                var plain=new System.Text.StringBuilder();
+                var spans=new List<(int Start,int End,bool Bold,bool Italic,float Size)>();
+                foreach(var raw in Outline.Text.Replace("\r","").Split('\n')){
+                    var line=raw;float size=17;bool heading=line.StartsWith("## "),sub=line.StartsWith("### "),quote=line.StartsWith("> ");
+                    if(heading||sub){size=sub?19:23;line=line.TrimStart('#',' ');}
+                    if(quote)line=line.Substring(2);
+                    if(line.StartsWith("- "))line="• "+line.Substring(2);
+                    foreach(var part in System.Text.RegularExpressions.Regex.Split(line,@"(\*\*[^*]+\*\*|\*[^*]+\*)")){
+                        int start=plain.Length;bool bold=heading||sub||part.StartsWith("**")&&part.EndsWith("**");bool italic=quote||part.StartsWith("*")&&!part.StartsWith("**")&&part.EndsWith("*");
+                        plain.Append(part.Trim('*'));if(plain.Length>start)spans.Add((start,plain.Length,bold,italic,size));
+                    }
+                    plain.Append('\r');
+                }
+                if(plain.Length>0)plain.Length--;
+                rich.Document.SetText(Microsoft.UI.Text.TextSetOptions.None,plain.ToString());
+                foreach(var span in spans){var format=rich.Document.GetRange(span.Start,span.End).CharacterFormat;format.Bold=span.Bold?Microsoft.UI.Text.FormatEffect.On:Microsoft.UI.Text.FormatEffect.Off;format.Italic=span.Italic?Microsoft.UI.Text.FormatEffect.On:Microsoft.UI.Text.FormatEffect.Off;format.Size=span.Size;}
+            }finally{syncingOutline=false;}
         }
-        void FormatLines(string prefix,bool numbered=false){
-            OutlineEdit();var body=Outline.Text;int start=Outline.SelectionStart,end=start+Outline.SelectionLength;
-            int first=start==0?0:body.LastIndexOf('\n',start-1)+1;
-            int last=body.IndexOf('\n',end);if(last<0)last=body.Length;
-            var lines=body.Substring(first,last-first).Split('\n');
-            var formatted=string.Join("\n",lines.Select((line,i)=>(numbered?(i+1)+". ":prefix)+System.Text.RegularExpressions.Regex.Replace(line,@"^\s*(?:#{1,6}\s+|[-*]\s+|\d+\.\s+|>\s+)","")));
-            Outline.Select(first,last-first);Outline.SelectedText=formatted;Outline.Select(first,formatted.Length);
+        void StoreVisual(){
+            if(syncingOutline||rich.Visibility!=Visibility.Visible)return;syncingOutline=true;
+            try{
+                rich.Document.GetText(Microsoft.UI.Text.TextGetOptions.None,out var plain);
+                if(plain.EndsWith("\r"))plain=plain[..^1];
+                var output=new System.Text.StringBuilder();int offset=0;
+                foreach(var line in plain.Split('\r')){
+                    if(offset>0)output.Append('\n');
+                    if(line.Length>0){
+                        var first=rich.Document.GetRange(offset,offset+1).CharacterFormat;
+                        bool heading=first.Size>=22,sub=!heading&&first.Size>=19;
+                        if(heading)output.Append("## ");else if(sub)output.Append("### ");
+                        int i=0;if(line.StartsWith("• ")){output.Append("- ");i=2;}
+                        while(i<line.Length){
+                            var format=rich.Document.GetRange(offset+i,offset+i+1).CharacterFormat;
+                            bool bold=!heading&&!sub&&format.Bold==Microsoft.UI.Text.FormatEffect.On,italic=format.Italic==Microsoft.UI.Text.FormatEffect.On;
+                            int end=i+1;while(end<line.Length){var next=rich.Document.GetRange(offset+end,offset+end+1).CharacterFormat;if((!heading&&!sub&&next.Bold==Microsoft.UI.Text.FormatEffect.On)!=bold||(next.Italic==Microsoft.UI.Text.FormatEffect.On)!=italic)break;end++;}
+                            var marker=bold&&italic?"***":bold?"**":italic?"*":"";output.Append(marker).Append(line.Substring(i,end-i)).Append(marker);i=end;
+                        }
+                    }
+                    offset+=line.Length+1;
+                }
+                Outline.Text=output.ToString();
+            }finally{syncingOutline=false;}
         }
-        ButtonFor(formatBar,"Heading",(_,_)=>FormatLines("## "));
-        ButtonFor(formatBar,"Subheading",(_,_)=>FormatLines("### "));
-        ButtonFor(formatBar,"Bold",(_,_)=>WrapSelection("**","**","Bold text"));
-        ButtonFor(formatBar,"Italic",(_,_)=>WrapSelection("*","*","Emphasis"));
-        ButtonFor(formatBar,"Bullets",(_,_)=>FormatLines("- "));
-        ButtonFor(formatBar,"Numbered",(_,_)=>FormatLines("",true));
-        ButtonFor(formatBar,"Scripture",(_,_)=>FormatLines("> "));
-        ButtonFor(formatBar,"Undo",(_,_)=>{OutlineEdit();if(Outline.CanUndo)Outline.Undo();});
-        ButtonFor(formatBar,"Redo",(_,_)=>{OutlineEdit();if(Outline.CanRedo)Outline.Redo();});
+        rich.TextChanged+=(_,_)=>StoreVisual();
+        void OutlineEdit(){previewScroll.Visibility=Visibility.Collapsed;Outline.Visibility=Visibility.Collapsed;if(rich.Visibility!=Visibility.Visible){LoadVisual();rich.Visibility=Visibility.Visible;}previewToggle.Content="Reading view";rich.Focus(FocusState.Programmatic);}
+        void VisualFormat(Action<Microsoft.UI.Text.ITextSelection> action){OutlineEdit();action(rich.Document.Selection);StoreVisual();}
+        ButtonFor(formatBar,"Heading",(_,_)=>VisualFormat(sel=>{sel.CharacterFormat.Size=23;sel.CharacterFormat.Bold=Microsoft.UI.Text.FormatEffect.On;}));
+        ButtonFor(formatBar,"Subheading",(_,_)=>VisualFormat(sel=>{sel.CharacterFormat.Size=19;sel.CharacterFormat.Bold=Microsoft.UI.Text.FormatEffect.On;}));
+        ButtonFor(formatBar,"Normal",(_,_)=>VisualFormat(sel=>{sel.CharacterFormat.Size=17;sel.CharacterFormat.Bold=Microsoft.UI.Text.FormatEffect.Off;sel.CharacterFormat.Italic=Microsoft.UI.Text.FormatEffect.Off;}));
+        ButtonFor(formatBar,"Bold",(_,_)=>VisualFormat(sel=>sel.CharacterFormat.Bold=Microsoft.UI.Text.FormatEffect.Toggle));
+        ButtonFor(formatBar,"Italic",(_,_)=>VisualFormat(sel=>sel.CharacterFormat.Italic=Microsoft.UI.Text.FormatEffect.Toggle));
+        ButtonFor(formatBar,"Bullets",(_,_)=>VisualFormat(sel=>sel.Text="• "+sel.Text));
+        ButtonFor(formatBar,"Numbered",(_,_)=>VisualFormat(sel=>sel.Text=string.Join("\r",sel.Text.Split('\r').Select((line,i)=>(i+1)+". "+line))));
+        ButtonFor(formatBar,"Scripture",(_,_)=>VisualFormat(sel=>sel.CharacterFormat.Italic=Microsoft.UI.Text.FormatEffect.On));
+        ButtonFor(formatBar,"Undo",(_,_)=>{OutlineEdit();rich.Document.Undo();StoreVisual();});
+        ButtonFor(formatBar,"Redo",(_,_)=>{OutlineEdit();rich.Document.Redo();StoreVisual();});
+        ButtonFor(formatBar,"Markdown",(_,_)=>{StoreVisual();rich.Visibility=Visibility.Collapsed;previewScroll.Visibility=Visibility.Collapsed;Outline.Visibility=Visibility.Visible;previewToggle.Content="Visual editor";});
         void LocateSource(string passage){
             var query=System.Text.RegularExpressions.Regex.Replace(passage,@"^[#>*\s\d.]+","").Replace("**","").Trim();
             if(query.Length==0)return;
@@ -203,7 +244,7 @@ public sealed partial class MainWindow
             timedScroll.Visibility=Visibility.Collapsed;Transcript.Visibility=Visibility.Visible;timedToggle.Content="Timestamp view";
             Transcript.Focus(FocusState.Programmatic);Transcript.Select(index,query.Length);Status.Text="Source passage located.";
         }
-        ButtonFor(formatBar,"Find source",(_,_)=>LocateSource(Outline.SelectedText));
+        ButtonFor(formatBar,"Find source",(_,_)=>LocateSource(rich.Visibility==Visibility.Visible?rich.Document.Selection.Text:Outline.SelectedText));
         bool writingMode=false;
         Action? toggleFocus=null;
         ButtonFor(formatBar,"Focus mode",(_,_)=>toggleFocus?.Invoke());
@@ -258,10 +299,11 @@ public sealed partial class MainWindow
             if(preview.Children.Count==0)preview.Children.Add(new TextBlock{Text="Write or generate an outline to preview its formatting.",TextWrapping=TextWrapping.Wrap});
         }
         previewToggle.Click+=(_,_)=>{
-            if(previewScroll.Visibility==Visibility.Visible){OutlineEdit();return;}
-            RenderOutline();previewScroll.Visibility=Visibility.Visible;Outline.Visibility=Visibility.Collapsed;previewToggle.Content="Edit outline";
+            if(previewScroll.Visibility==Visibility.Visible||Outline.Visibility==Visibility.Visible){OutlineEdit();return;}
+            StoreVisual();rich.Visibility=Visibility.Collapsed;
+            RenderOutline();previewScroll.Visibility=Visibility.Visible;Outline.Visibility=Visibility.Collapsed;previewToggle.Content="Visual editor";
         };
-        Outline.TextChanged+=(_,_)=>{if(previewScroll.Visibility==Visibility.Visible)RenderOutline();};
+        Outline.TextChanged+=(_,_)=>{if(syncingOutline)return;if(rich.Visibility==Visibility.Visible)LoadVisual();if(previewScroll.Visibility==Visibility.Visible)RenderOutline();};
         Grid.SetColumn(divider,0); workspace.Children.Add(divider);
         editorCards[0].Margin=new Thickness(0,0,9,0);
         divider.ManipulationDelta += (_,e) => {
@@ -385,7 +427,7 @@ public sealed partial class MainWindow
             divider.Visibility=transcript && outline?Visibility.Visible:Visibility.Collapsed;
             timedScroll.Visibility=Visibility.Collapsed;previewScroll.Visibility=Visibility.Collapsed;timedToggle.Content="Timestamp view";previewToggle.Content="Formatted view";
             Transcript.Visibility = transcript ? Visibility.Visible : Visibility.Collapsed;
-            Outline.Visibility = outline ? Visibility.Visible : Visibility.Collapsed;
+            Outline.Visibility=Visibility.Collapsed;rich.Visibility=Visibility.Collapsed;if(outline)OutlineEdit();
             scroll.Visibility = library ? Visibility.Visible : Visibility.Collapsed;
             workspace.ColumnDefinitions[0].Width = transcript ? new GridLength(outline?split:1, GridUnitType.Star) : new GridLength(0);
             workspace.ColumnDefinitions[1].Width = outline ? new GridLength(transcript?1-split:1, GridUnitType.Star) : new GridLength(0);
