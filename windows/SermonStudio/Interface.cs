@@ -486,7 +486,34 @@ public sealed partial class MainWindow
         ApplyTheme();
         theme.SelectionChanged += (_,_)=>{ApplyTheme();try{Directory.CreateDirectory(Path.GetDirectoryName(settingsPath)!);File.WriteAllText(settingsPath,theme.SelectedIndex.ToString());}catch{}};
         sidebar.RequestedTheme=ElementTheme.Dark;
-        settings.Children.Add(theme);
+        var appearancePanel=new StackPanel{Spacing=10};appearancePanel.Children.Add(theme);
+        var fontChoice=new ComboBox{Header="Editor text size"};foreach(var size in new[]{14,17,20,23,26})fontChoice.Items.Add(size);fontChoice.SelectedIndex=1;
+        var fontPath=Path.Combine(Path.GetDirectoryName(_libraryPath)!,"editor-size.txt");
+        try{if(File.Exists(fontPath)&&int.TryParse(File.ReadAllText(fontPath),out var savedSize)&&fontChoice.Items.Contains(savedSize))fontChoice.SelectedItem=savedSize;}catch{}
+        void ApplyEditorSize(){if(fontChoice.SelectedItem is int size){Transcript.FontSize=size;Outline.FontSize=size;rich.FontSize=size;}}
+        ApplyEditorSize();fontChoice.SelectionChanged+=(_,_)=>{ApplyEditorSize();try{Directory.CreateDirectory(Path.GetDirectoryName(fontPath)!);File.WriteAllText(fontPath,fontChoice.SelectedItem?.ToString()??"17");}catch{}};
+        appearancePanel.Children.Add(fontChoice);
+        settings.Children.Insert(0,new Expander{Header="Appearance and accessibility",Content=appearancePanel,IsExpanded=true,HorizontalAlignment=HorizontalAlignment.Stretch});
+        var updatePanel=new StackPanel{Spacing=8};
+        var autoCheck=new CheckBox{Content="Check for updates on startup",IsChecked=false};
+        var updatePrefs=Path.Combine(Path.GetDirectoryName(_libraryPath)!,"auto-update-check.txt");
+        try{autoCheck.IsChecked=File.Exists(updatePrefs)&&File.ReadAllText(updatePrefs)=="1";}catch{}
+        void SaveUpdatePreference(){try{Directory.CreateDirectory(Path.GetDirectoryName(updatePrefs)!);File.WriteAllText(updatePrefs,autoCheck.IsChecked==true?"1":"0");}catch{}}
+        autoCheck.Checked+=(_,_)=>SaveUpdatePreference();autoCheck.Unchecked+=(_,_)=>SaveUpdatePreference();
+        updatePanel.Children.Add(autoCheck);_updateNotice=new TextBlock{Text="Updates require your approval.",TextWrapping=TextWrapping.Wrap};updatePanel.Children.Add(_updateNotice);
+        ButtonFor(updatePanel,"Check now",Updates_Click);
+        settings.Children.Add(new Expander{Header="Updates",Content=updatePanel,IsExpanded=true,HorizontalAlignment=HorizontalAlignment.Stretch});
+        var about=new StackPanel{Spacing=8};var tagPath=Path.Combine(AppContext.BaseDirectory,"build-tag.txt");string build="Development build";try{if(File.Exists(tagPath))build=File.ReadAllText(tagPath).Trim();}catch{}
+        about.Children.Add(new TextBlock{Text="Sermon Studio · Windows\n"+build,TextWrapping=TextWrapping.Wrap});
+        about.Children.Add(new TextBlock{Text="Local library: "+_libraryPath,TextWrapping=TextWrapping.Wrap,IsTextSelectionEnabled=true});
+        ButtonFor(about,"Open library folder",(_,_)=>{try{var folder=Path.GetDirectoryName(_libraryPath)!;Directory.CreateDirectory(folder);System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(folder){UseShellExecute=true});}catch(Exception ex){Status.Text=ex.Message;}});
+        about.Children.Add(new TextBlock{Text="Ctrl+S Save · Ctrl+F Find · Ctrl+L Library · F11 Full screen · Esc Exit focus",TextWrapping=TextWrapping.Wrap});
+        settings.Children.Add(new Expander{Header="About and keyboard shortcuts",Content=about,HorizontalAlignment=HorizontalAlignment.Stretch});
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(Transcript,"Sermon transcript editor");
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(rich,"Visual sermon outline editor");
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(FindText,"Find transcript text");
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(Replacement,"Replacement text");
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(LibraryList,"Saved sermons");
         if(preferredPage=="New sermon"||preferredPage=="Scripture references"||!pageActions.ContainsKey(preferredPage))preferredPage="Sermon outlines";
         pageActions[preferredPage]();
         var sidebarScroll=new ScrollViewer{Content=sidebar,Background=navy,VerticalScrollBarVisibility=ScrollBarVisibility.Auto};shell.Children.Add(sidebarScroll); Grid.SetColumn(root,1); shell.Children.Add(root);
@@ -510,6 +537,15 @@ public sealed partial class MainWindow
         var shortcut = new Microsoft.UI.Xaml.Input.KeyboardAccelerator { Key = Windows.System.VirtualKey.F11 };
         shortcut.Invoked += (_,e) => { ToggleFullScreen(); e.Handled = true; };
         shell.KeyboardAccelerators.Add(shortcut);
+        void Key(Windows.System.VirtualKey key,Windows.System.VirtualKeyModifiers modifiers,Action action){
+            var accelerator=new Microsoft.UI.Xaml.Input.KeyboardAccelerator{Key=key,Modifiers=modifiers};
+            accelerator.Invoked+=(_,e)=>{action();e.Handled=true;};shell.KeyboardAccelerators.Add(accelerator);
+        }
+        Key(Windows.System.VirtualKey.S,Windows.System.VirtualKeyModifiers.Control,()=>Save());
+        Key(Windows.System.VirtualKey.F,Windows.System.VirtualKeyModifiers.Control,()=>{if(writingMode)toggleFocus?.Invoke();pageActions["Transcript editor"]();FindText.Focus(FocusState.Programmatic);});
+        Key(Windows.System.VirtualKey.L,Windows.System.VirtualKeyModifiers.Control,()=>{if(writingMode)toggleFocus?.Invoke();pageActions["Sermon library"]();_librarySearch?.Focus(FocusState.Programmatic);});
+        Key(Windows.System.VirtualKey.Escape,Windows.System.VirtualKeyModifiers.None,()=>{if(writingMode)toggleFocus?.Invoke();});
+        shell.Loaded+=async(_,_)=>{if(autoCheck.IsChecked==true)await CheckUpdatesAsync(false);};
         Content = shell;
         shell.Loaded += (_,_) => {
             try { if(AppWindow.Presenter is Microsoft.UI.Windowing.OverlappedPresenter presenter) presenter.Maximize(); }
