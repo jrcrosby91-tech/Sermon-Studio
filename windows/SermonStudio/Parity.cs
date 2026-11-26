@@ -18,7 +18,7 @@ public sealed partial class MainWindow
     private string _originalText = "";
     private string _cleanedText = "";
     private bool _showCleaned;
-    private readonly MediaPlayer _player = new();
+    private MediaPlayer? _player;
     private async Task<string?> PickFile(params string[] extensions)
     {
         var picker = new FileOpenPicker();
@@ -32,6 +32,8 @@ public sealed partial class MainWindow
             var path = await PickFile(".wav",".mp3",".m4a",".mp4",".flac",".ogg");
             if (path == null) return;
             _audioPath = path;
+            _player ??= new MediaPlayer();
+            if (_audioHost != null && !_audioHost.Children.Contains(AudioPlayer)) _audioHost.Children.Add(AudioPlayer);
             _player.Source = MediaSource.CreateFromUri(new Uri(path));
             AudioPlayer.SetMediaPlayer(_player);
             Status.Text = "Recording loaded. Select Transcribe to process locally.";
