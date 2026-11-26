@@ -188,14 +188,25 @@ public sealed partial class MainWindow
     private async void Restore_Click(object sender,RoutedEventArgs e)
     {
         try {
+            if(_transcription!=null||!FlushPendingSave()){Status.Text="Finish transcription or resolve the save failure before restoring.";return;}
+            if(_archiveReadFailed){Status.Text="Original archive unreadable. Restore is blocked to protect it.";return;}
             var path=await PickFile(".json"); if(path==null)return;
             var raw=JsonSerializer.Deserialize<List<SermonRecord?>>(await File.ReadAllTextAsync(path),ArchiveOptions) ?? throw new InvalidDataException("Invalid archive.");
             if(raw.Any(x=>x==null||string.IsNullOrWhiteSpace(x.Id))) throw new InvalidDataException("Invalid sermon record.");
+            if(raw.Select(x=>x!.Id).Distinct(StringComparer.Ordinal).Count()!=raw.Count)throw new InvalidDataException("Backup contains duplicate identifiers.");
             var records=NormalizeRecords(raw);
-            foreach(var item in records) if(!_library.Any(x=>x.Id==item.Id)) _library.Add(item);
-            Directory.CreateDirectory(Path.GetDirectoryName(_libraryPath)!);
-            File.WriteAllText(_libraryPath+".tmp",JsonSerializer.Serialize(_library)); File.Move(_libraryPath+".tmp",_libraryPath,true);
-            RefreshLibrary(); Status.Text="Backup merged; existing sermons retained.";
+            if(_transcription!=null||!FlushPendingSave())return;
+            var existing=_library.Select(x=>x.Id).ToHashSet(StringComparer.Ordinal);
+            var additions=records.Where(x=>!existing.Contains(x.Id)).ToList();
+            if(additions.Count==0){Status.Text="No new sermons to restore.";return;}
+            var before=_library.ToList();
+            try{
+                Directory.CreateDirectory(Path.GetDirectoryName(_libraryPath)!);
+                if(File.Exists(_libraryPath))File.Copy(_libraryPath,_libraryPath+".before-restore-"+Guid.NewGuid().ToString("N")+".json");
+                _library.AddRange(additions);PersistLibrary();
+            }catch{_library=before;throw;}
+            RefreshLibrary(); Status.Text=$"Restored {additions.Count} sermons; skipped {records.Count-additions.Count} existing records.";
         }catch(Exception ex){Status.Text="Restore failed: "+ex.Message;}
+
     }
 }
