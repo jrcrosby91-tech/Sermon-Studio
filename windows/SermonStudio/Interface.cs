@@ -85,9 +85,12 @@ public sealed partial class MainWindow
         var waveStatus=new TextBlock{Text="Import audio to display its waveform",FontSize=12};
         playback.Children.Add(wave);playback.Children.Add(waveStatus);
         double[] peaks=Array.Empty<double>();string? wavePath=null;CancellationTokenSource? waveCancel=null;
+        double drawnWidth=-1;double[]? drawnPeaks=null;int drawnProgress=-1;
         void DrawWave(){
-            wave.Children.Clear();double width=wave.ActualWidth;if(width<=0||peaks.Length==0)return;
+            double width=wave.ActualWidth;if(width<=0||peaks.Length==0){wave.Children.Clear();drawnPeaks=null;return;}
             double fraction=0;try{if(_player!=null&&_player.PlaybackSession.NaturalDuration.TotalSeconds>0)fraction=_player.PlaybackSession.Position.TotalSeconds/_player.PlaybackSession.NaturalDuration.TotalSeconds;}catch{}
+            int progress=(int)Math.Clamp(fraction*peaks.Length,0,peaks.Length);if(drawnWidth==width&&ReferenceEquals(drawnPeaks,peaks)&&drawnProgress==progress)return;
+            drawnWidth=width;drawnPeaks=peaks;drawnProgress=progress;wave.Children.Clear();
             for(int i=0;i<peaks.Length;i++){double h=Math.Max(1,peaks[i]*48);var bar=new Microsoft.UI.Xaml.Shapes.Rectangle{Width=Math.Max(.5,width/peaks.Length-1),Height=h,Fill=i/(double)peaks.Length<=fraction?gold:Brush(125,145,165)};Canvas.SetLeft(bar,i*width/peaks.Length);Canvas.SetTop(bar,(54-h)/2);wave.Children.Add(bar);}
         }
         wave.SizeChanged+=(_,_)=>DrawWave();
@@ -330,7 +333,9 @@ public sealed partial class MainWindow
         ButtonFor(search,"Replace all",(_,_)=>{EditMode();if(!string.IsNullOrEmpty(FindText.Text)){Transcript.Text=Transcript.Text.Replace(FindText.Text,Replacement.Text,Comparison());Status.Text="Matching passages replaced.";}});
         void CountMatches(){var q=FindText.Text;matchCount.Text=string.IsNullOrWhiteSpace(q)?"":System.Text.RegularExpressions.Regex.Matches(Transcript.Text,System.Text.RegularExpressions.Regex.Escape(q),(caseSensitive.IsChecked==true?System.Text.RegularExpressions.RegexOptions.None:System.Text.RegularExpressions.RegexOptions.IgnoreCase)).Count+" matches";}
         caseSensitive.Checked+=(_,_)=>CountMatches();caseSensitive.Unchecked+=(_,_)=>CountMatches();
-        FindText.TextChanged+=(_,_)=>CountMatches();Transcript.TextChanged+=(_,_)=>CountMatches();
+        var matchTimer=DispatcherQueue.CreateTimer();matchTimer.Interval=TimeSpan.FromMilliseconds(250);matchTimer.IsRepeating=false;matchTimer.Tick+=(_,_)=>CountMatches();
+        void QueueMatches(){matchTimer.Stop();matchTimer.Start();}
+        FindText.TextChanged+=(_,_)=>QueueMatches();Transcript.TextChanged+=(_,_)=>QueueMatches();Closed+=(_,_)=>matchTimer.Stop();
         FindText.KeyDown+=(_,e)=>{if(e.Key==Windows.System.VirtualKey.Enter){if(timedScroll.Visibility==Visibility.Visible){timedScroll.Visibility=Visibility.Collapsed;Transcript.Visibility=Visibility.Visible;timedToggle.Content="Timestamp view";}FindMatch(false);e.Handled=true;}};
         Transcript.TextChanged += Editor_TextChanged; Outline.TextChanged += Outline_TextChanged; SermonTitle.TextChanged += Editor_TextChanged;
         App.Log("Building interface: library");
@@ -417,7 +422,9 @@ public sealed partial class MainWindow
         var counts=new TextBlock{Opacity=.75};footer.Children.Add(Status);
         var footerRight=new StackPanel{Orientation=Orientation.Horizontal,Spacing=16};_saveIndicator=new TextBlock{Text="Unsaved draft",FontWeight=Microsoft.UI.Text.FontWeights.SemiBold};footerRight.Children.Add(_saveIndicator);footerRight.Children.Add(counts);Grid.SetColumn(footerRight,1);footer.Children.Add(footerRight);
         void CountWords(){counts.Text=$"{System.Text.RegularExpressions.Regex.Matches(Transcript.Text,@"\S+").Count:N0} transcript words  ·  {System.Text.RegularExpressions.Regex.Matches(Outline.Text,@"\S+").Count:N0} outline words";}
-        Transcript.TextChanged+=(_,_)=>CountWords();Outline.TextChanged+=(_,_)=>CountWords();CountWords();
+        var countTimer=DispatcherQueue.CreateTimer();countTimer.Interval=TimeSpan.FromMilliseconds(300);countTimer.IsRepeating=false;countTimer.Tick+=(_,_)=>CountWords();
+        void QueueCount(){countTimer.Stop();countTimer.Start();}
+        Transcript.TextChanged+=(_,_)=>QueueCount();Outline.TextChanged+=(_,_)=>QueueCount();CountWords();Closed+=(_,_)=>countTimer.Stop();
         Grid.SetRow(footer,3);root.Children.Add(footer);
         App.Log("Attaching interface");
         root.Loaded += (_, _) => App.Log("Root Loaded");
@@ -435,7 +442,7 @@ public sealed partial class MainWindow
         var pageActions=new Dictionary<string,Action>();
         void Navigate(string name, Action action) {
             var navContent=new StackPanel{Orientation=Orientation.Horizontal,Spacing=10};navContent.Children.Add(new FontIcon{Glyph=name switch {"New sermon"=>"\uE710","Transcript editor"=>"\uE70F","Sermon outlines"=>"\uE8A5","Sermon library"=>"\uE8B7","Settings"=>"\uE713","Scripture references"=>"\uE82D","Transcribe audio"=>"\uE720",_=>"\uE8A9"},FontFamily=new FontFamily("Segoe MDL2 Assets"),FontSize=18});navContent.Children.Add(new TextBlock{Text=name});
-            var button = new Button { Content = navContent, HorizontalAlignment = HorizontalAlignment.Stretch, HorizontalContentAlignment=HorizontalAlignment.Left, Background=new SolidColorBrush(Microsoft.UI.Colors.Transparent), Foreground=new SolidColorBrush(Microsoft.UI.Colors.White), BorderThickness=new Thickness(0), CornerRadius=new CornerRadius(8), Padding=new Thickness(12,12,12,12) };navButtons.Add(button);
+            var button = new Button { Content = navContent, HorizontalAlignment = HorizontalAlignment.Stretch, HorizontalContentAlignment=HorizontalAlignment.Left, Background=new SolidColorBrush(Microsoft.UI.Colors.Transparent), Foreground=new SolidColorBrush(Microsoft.UI.Colors.White), BorderThickness=new Thickness(0), CornerRadius=new CornerRadius(8), Padding=new Thickness(12,12,12,12) };navButtons.Add(button);Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(button,name);
             void OpenPage(){ foreach(var b in navButtons){b.Background=new SolidColorBrush(Microsoft.UI.Colors.Transparent);b.Foreground=new SolidColorBrush(Microsoft.UI.Colors.White);}button.Background=gold;button.Foreground=navy;PageTitle.Text = name; tools.Visibility=Visibility.Visible; action(); SetToolbar(name); if(name!="New sermon"){preferredPage=name;RememberWorkspace();} }
             pageActions[name]=OpenPage;button.Click+=(_,_)=>OpenPage();
             sidebar.Children.Add(button);
@@ -478,6 +485,7 @@ public sealed partial class MainWindow
         }
         void Paint(){
             bool dark=shell.ActualTheme==ElementTheme.Dark;
+            if(new Windows.UI.ViewManagement.AccessibilitySettings().HighContrast){root.ClearValue(Grid.BackgroundProperty);foreach(var c in cards){c.ClearValue(Border.BackgroundProperty);c.ClearValue(Border.BorderBrushProperty);}foreach(var h in headings)h.ClearValue(TextBlock.ForegroundProperty);return;}
             root.Background=dark?Brush(16,23,32):Brush(242,239,232);
             foreach(var c in cards){c.Background=dark?Brush(25,34,45):Brush(255,252,245);c.BorderBrush=dark?Brush(62,76,92):Brush(213,207,194);}
             foreach(var h in headings)h.Foreground=dark?Brush(238,220,173):navy;
@@ -517,6 +525,7 @@ public sealed partial class MainWindow
         if(preferredPage=="New sermon"||preferredPage=="Scripture references"||!pageActions.ContainsKey(preferredPage))preferredPage="Sermon outlines";
         pageActions[preferredPage]();
         var sidebarScroll=new ScrollViewer{Content=sidebar,Background=navy,VerticalScrollBarVisibility=ScrollBarVisibility.Auto};shell.Children.Add(sidebarScroll); Grid.SetColumn(root,1); shell.Children.Add(root);
+        shell.SizeChanged+=(_,e)=>{if(!writingMode){shell.ColumnDefinitions[0].Width=new GridLength(e.NewSize.Width<900?180:220);root.Padding=new Thickness(e.NewSize.Width<900?10:20);}};
         toggleFocus=()=>{
             if(writingMode){writingMode=false;sidebarScroll.Visibility=Visibility.Visible;shell.ColumnDefinitions[0].Width=new GridLength(220);PageTitle.Visibility=Visibility.Visible;pageActions[preferredPage]();return;}
             writingMode=true;sidebarScroll.Visibility=Visibility.Collapsed;shell.ColumnDefinitions[0].Width=new GridLength(0);PageTitle.Visibility=Visibility.Collapsed;tools.Visibility=Visibility.Collapsed;scroll.Visibility=Visibility.Collapsed;editorCards[0].Visibility=Visibility.Collapsed;divider.Visibility=Visibility.Collapsed;
