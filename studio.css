@@ -11,3 +11,5 @@
 #outlineText{min-height:470px;font-family:Georgia,serif;line-height:1.75;background:var(--panel)}
 #outlineHint{color:var(--muted)}
 @media(max-width:920px){.outline-split{grid-template-columns:1fr}.outline-pane{min-height:250px}}
+
+.metadata{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:8px}.metadata label{display:flex;flex-direction:column}.outline-focus #outlines .outline-split{grid-template-columns:1fr}.outline-focus #outlines .outline-pane:first-child{display:none}#outlinePreview{font:var(--editor-size,18px)/1.65 Georgia,serif;overflow-wrap:anywhere}#outlinePreview blockquote{border-left:3px solid var(--gold);padding-left:12px;font-style:italic}#outlinePreview p{white-space:pre-wrap}.font-options{display:flex;flex-wrap:wrap;gap:4px}.font-options button[aria-pressed=true]{outline:3px solid var(--gold)}
