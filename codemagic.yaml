@@ -87,7 +87,7 @@ workflows:
           [[ "$SERMON_BUILD_NUMBER" =~ ^[1-9][0-9]*$ ]] || exit 1
           if ! command -v gh >/dev/null; then brew install gh; fi
           gh api repos/jrcrosby91-tech/Sermon-Studio --jq .full_name
-          if gh release view "mac-v$SERMON_VERSION" -R jrcrosby91-tech/Sermon-Studio >/dev/null 2>&1; then
+          if gh release view "mac-v$SERMON_VERSION-beta.$SERMON_BUILD_NUMBER" -R jrcrosby91-tech/Sermon-Studio >/dev/null 2>&1; then
             echo "Release already exists"; exit 1
           fi
       - name: Prepare Sparkle framework
@@ -103,10 +103,12 @@ workflows:
         script: |
           set -euo pipefail
           CI=1 bash macos/build-local.sh
-      - name: Sign and publish update
+      - name: Publish tester prerelease (leave stable appcast unchanged)
         script: |
           set -euo pipefail
-          bash macos/publish-codemagic.sh
+          test -s macos/dist/Sermon-Studio-macOS-arm64.zip
+          test -s macos/dist/Sermon-Studio-macOS-arm64.dmg
+          gh release create "mac-v$SERMON_VERSION-beta.$SERMON_BUILD_NUMBER" macos/dist/Sermon-Studio-macOS-arm64.zip macos/dist/Sermon-Studio-macOS-arm64.dmg -R jrcrosby91-tech/Sermon-Studio --target "$CM_COMMIT" --prerelease --latest=false --title "Sermon Studio $SERMON_VERSION Beta (build $SERMON_BUILD_NUMBER)" --notes "Apple Silicon tester build. Runtime acceptance checks pending. Ad-hoc signed; not notarized. Stable automatic update feed unchanged."
     artifacts:
       - macos/dist/*.dmg
       - macos/dist/*.zip
