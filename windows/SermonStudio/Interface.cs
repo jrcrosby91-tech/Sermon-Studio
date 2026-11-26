@@ -69,6 +69,7 @@ public sealed partial class MainWindow
         ButtonFor(side,"Backup archive",Backup_Click); ButtonFor(side,"Restore archive",Restore_Click);
         side.Children.Add(new TextBlock { Text = "Scripture references" });
         ScriptureResults = new TextBlock { TextWrapping = TextWrapping.Wrap, IsTextSelectionEnabled = true }; side.Children.Add(ScriptureResults);
+        ConfigureTools(side);
         Status = new TextBlock { Text = "Ready", TextWrapping = TextWrapping.Wrap }; Grid.SetRow(Status,3); root.Children.Add(Status);
         App.Log("Attaching interface");
         root.Loaded += (_, _) => App.Log("Root Loaded");
