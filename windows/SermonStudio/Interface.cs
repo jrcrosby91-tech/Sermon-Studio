@@ -111,7 +111,7 @@ public sealed partial class MainWindow
             }
             previewScroll.Visibility=show?Visibility.Visible:Visibility.Collapsed;Outline.Visibility=show?Visibility.Collapsed:Visibility.Visible;previewToggle.Content=show?"Edit outline":"Formatted view";
         };
-        var divider = new Border { Width=8, HorizontalAlignment=HorizontalAlignment.Right, Background=new SolidColorBrush(Microsoft.UI.Colors.SlateGray), ManipulationMode=ManipulationModes.TranslateX };
+        var divider = new Border { Width=8, HorizontalAlignment=HorizontalAlignment.Right, Background=new SolidColorBrush(Microsoft.UI.Colors.SlateGray), ManipulationMode=Microsoft.UI.Xaml.Input.ManipulationModes.TranslateX };
         Grid.SetColumn(divider,0); workspace.Children.Add(divider);
         editorCards[0].Margin=new Thickness(0,0,12,0);
         divider.ManipulationDelta += (_,e) => {
