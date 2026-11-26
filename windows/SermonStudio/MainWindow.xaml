@@ -27,16 +27,19 @@
                 </ComboBox>
                 <Button Content="Generate outline" Click="Generate_Click" VerticalAlignment="Bottom"/>
                 <Button Content="Save sermon" Click="Save_Click" VerticalAlignment="Bottom"/>
+                <Button Content="New" Click="New_Click" VerticalAlignment="Bottom"/>
+                <Button Content="Export outline" Click="Export_Click" VerticalAlignment="Bottom"/>
             </StackPanel>
             <Grid Grid.Row="2" ColumnSpacing="10">
                 <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="2*"/>
                     <ColumnDefinition Width="8"/>
-                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="2*"/>
+                    <ColumnDefinition Width="230"/>
                 </Grid.ColumnDefinitions>
                 <StackPanel Grid.Column="0" Spacing="8">
                     <TextBlock Text="Transcript" FontSize="20" FontWeight="SemiBold"/>
-                    <TextBox x:Name="Transcript" AcceptsReturn="True" TextWrapping="Wrap" VerticalAlignment="Stretch"
+                    <TextBox x:Name="Transcript" TextChanged="Editor_TextChanged" AcceptsReturn="True" TextWrapping="Wrap" VerticalAlignment="Stretch"
                              VerticalContentAlignment="Top" MinHeight="400"/>
                 </StackPanel>
                 <Border Grid.Column="1" Width="2" Background="{ThemeResource SystemControlForegroundBaseLowBrush}" HorizontalAlignment="Center"/>
@@ -44,6 +47,13 @@
                     <TextBlock Text="Sermon outline" FontSize="20" FontWeight="SemiBold"/>
                     <TextBox x:Name="Outline" AcceptsReturn="True" TextWrapping="Wrap" VerticalAlignment="Stretch"
                              VerticalContentAlignment="Top" MinHeight="400" TextChanged="Outline_TextChanged"/>
+                </StackPanel>
+                <StackPanel Grid.Column="3" Spacing="8">
+                    <TextBlock Text="Sermon library" FontSize="20" FontWeight="SemiBold"/>
+                    <ListView x:Name="LibraryList" SelectionChanged="Library_SelectionChanged" DisplayMemberPath="Title" MinHeight="350"/>
+                    <TextBlock Text="Ollama model" FontSize="14"/>
+                    <TextBox x:Name="OllamaModel" Text="llama3.2:3b" PlaceholderText="Installed local model"/>
+                    <TextBlock Text="Exports are saved to Documents/Sermon Studio" TextWrapping="Wrap" Opacity=".7"/>
                 </StackPanel>
             </Grid>
             <TextBlock x:Name="Status" Grid.Row="3" Text="Ready. Original outlines work offline." Opacity=".7"/>
