@@ -42,11 +42,21 @@ jobs:
         run: |
           dotnet build windows/SermonStudio/SermonStudio.csproj --configuration Release --no-restore -p:Platform=x64 -p:RuntimeIdentifier=win-x64 -p:GenerateAppxPackageOnBuild=false
 
-      - name: Upload build output for testing
-        if: success()
+      - name: Publish runnable Windows x64 application
+        run: |
+          dotnet publish windows/SermonStudio/SermonStudio.csproj --configuration Release --no-restore --runtime win-x64 --self-contained true -p:Platform=x64 -p:WindowsAppSDKSelfContained=true -p:WindowsPackageType=None -p:PublishSingleFile=false -p:GenerateAppxPackageOnBuild=false -p:PublishDir="${{ github.workspace }}\\windows-publish\\"
+          if (!(Test-Path "windows-publish/SermonStudio.exe")) {
+            throw "Windows executable missing from published output."
+          }
+
+      - name: Create portable ZIP with executable and dependencies
+        run: |
+          Compress-Archive -Path "windows-publish/*" -DestinationPath "Sermon-Studio-Windows-x64-portable.zip" -Force
+
+      - name: Upload executable package
         uses: actions/upload-artifact@v4
         with:
-          name: Sermon-Studio-Windows-x64-test
-          path: windows/SermonStudio/bin/x64/Release/**
+          name: Sermon-Studio-Windows-x64-portable
+          path: Sermon-Studio-Windows-x64-portable.zip
           if-no-files-found: error
           retention-days: 14
