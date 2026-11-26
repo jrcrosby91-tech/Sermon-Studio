@@ -28,9 +28,9 @@ public sealed partial class MainWindow
         root.Children.Add(PageTitle);
         var tools = new StackPanel { Spacing = 6 };
         Grid.SetRow(tools, 1); root.Children.Add(tools);
-        StackPanel Bar() {
-            var bar = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6 };
-            tools.Children.Add(Card(new ScrollViewer { Content = bar, HorizontalScrollMode = ScrollMode.Enabled, HorizontalScrollBarVisibility = ScrollBarVisibility.Auto, VerticalScrollMode = ScrollMode.Disabled }));
+        ResponsiveToolbar Bar() {
+            var bar = new ResponsiveToolbar();
+            tools.Children.Add(Card(bar));
             return bar;
         }
         void ButtonFor(Panel panel, string title, RoutedEventHandler handler) {
@@ -62,7 +62,7 @@ public sealed partial class MainWindow
         ButtonFor(audioActions,"Import audio",ImportAudio_Click); ButtonFor(audioActions,"Transcribe",Transcribe_Click); ButtonFor(audioActions,"Cancel",Cancel_Click);
         var actions = Bar();
         ButtonFor(actions,"Clean",Clean_Click); ButtonFor(actions,"Original",Original_Click);
-        var search = new Microsoft.UI.Xaml.Controls.VariableSizedWrapGrid{Orientation=Orientation.Horizontal,ItemWidth=145,ItemHeight=48};
+        var search = new ResponsiveToolbar();
         FindText = Field(search,"","",130);FindText.PlaceholderText="Find text";
         Replacement = Field(search,"","",130);Replacement.PlaceholderText="Replace with";
         ButtonFor(actions,"Scripture",Scripture_Click); ButtonFor(actions,"Compare",Compare_Click);
@@ -176,7 +176,7 @@ public sealed partial class MainWindow
         var previewToggle=new Button{Content="Formatted view",HorizontalAlignment=HorizontalAlignment.Right};outlinePanel.Children.Add(previewToggle);
         outlinePanel.RowDefinitions.Insert(1,new RowDefinition{Height=GridLength.Auto});
         Grid.SetRow(Outline,2);Grid.SetRow(previewScroll,2);
-        var formatBar=new VariableSizedWrapGrid{Orientation=Orientation.Horizontal,ItemWidth=135,ItemHeight=44};
+        var formatBar=new ResponsiveToolbar();
         Grid.SetRow(formatBar,1);outlinePanel.Children.Add(formatBar);
         var rich=new RichEditBox{FontFamily=new FontFamily("Georgia"),FontSize=17,TextWrapping=TextWrapping.Wrap,Visibility=Visibility.Collapsed};
         Grid.SetRow(rich,2);outlinePanel.Children.Add(rich);
@@ -565,5 +565,33 @@ public sealed partial class MainWindow
     {
         if (sender is FrameworkElement root) root.LayoutUpdated -= OnFirstLayout;
         App.Log("First layout completed");
+    }
+}
+
+internal sealed class ResponsiveToolbar : Microsoft.UI.Xaml.Controls.Panel
+{
+    private const double Gap=6;
+    protected override Windows.Foundation.Size MeasureOverride(Windows.Foundation.Size available)
+    {
+        double limit=available.Width,x=0,y=0,row=0,max=0;
+        foreach(var child in Children){
+            if(child.Visibility==Microsoft.UI.Xaml.Visibility.Collapsed)continue;
+            child.Measure(new Windows.Foundation.Size(limit,double.PositiveInfinity));
+            var d=child.DesiredSize;
+            if(x>0&&x+d.Width>limit){y+=row+Gap;x=0;row=0;}
+            x+=d.Width+Gap;row=Math.Max(row,d.Height);max=Math.Max(max,x-Gap);
+        }
+        return new Windows.Foundation.Size(double.IsInfinity(limit)?max:Math.Min(max,limit),y+row);
+    }
+    protected override Windows.Foundation.Size ArrangeOverride(Windows.Foundation.Size final)
+    {
+        double x=0,y=0,row=0;
+        foreach(var child in Children){
+            if(child.Visibility==Microsoft.UI.Xaml.Visibility.Collapsed)continue;
+            var d=child.DesiredSize;double w=Math.Min(d.Width,final.Width);
+            if(x>0&&x+w>final.Width){y+=row+Gap;x=0;row=0;}
+            child.Arrange(new Windows.Foundation.Rect(x,y,w,d.Height));x+=w+Gap;row=Math.Max(row,d.Height);
+        }
+        return final;
     }
 }
