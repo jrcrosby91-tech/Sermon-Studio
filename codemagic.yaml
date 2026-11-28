@@ -38,13 +38,18 @@ workflows:
           manifest.write_text(source.replace(old, '.package(name: "Sparkle", path: ".codemagic-sparkle")'))
           print("SwiftPM configured to use locally downloaded Sparkle.")
           PY
+      - name: Run automated tests (a failure stops the build)
+        script: |
+          set -euo pipefail
+          cd macos
+          swift test --parallel
       - name: Build macOS app and installers
         script: |
           set -euo pipefail
           uname -m
           swift --version
           set +e
-          CI=1 SERMON_VERSION=3.2.0 SERMON_BUILD_NUMBER=8 bash macos/build-local.sh
+          CI=1 SERMON_VERSION=3.3.0 SERMON_BUILD_NUMBER=9 bash macos/build-local.sh
           result=$?
           if [ "$result" -ne 0 ]; then
             echo '========== BUILD ERRORS =========='
@@ -69,8 +74,8 @@ workflows:
       groups:
         - sermon_studio_release
       vars:
-        SERMON_VERSION: "3.2.0"
-        SERMON_BUILD_NUMBER: "8"
+        SERMON_VERSION: "3.3.0"
+        SERMON_BUILD_NUMBER: "9"
     scripts:
       - name: Validate release credentials and version
         script: |
@@ -89,6 +94,11 @@ workflows:
         script: |
           set -euo pipefail
           bash macos/prepare-sparkle.sh
+      - name: Run automated tests (a failure stops the build)
+        script: |
+          set -euo pipefail
+          cd macos
+          swift test --parallel
       - name: Build macOS app and installers
         script: |
           set -euo pipefail

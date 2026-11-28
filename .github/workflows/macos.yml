@@ -5,25 +5,112 @@ on:
     paths:
       - 'macos/**'
       - '.github/workflows/macos.yml'
+  pull_request:
+    paths:
+      - 'macos/**'
+      - '.github/workflows/macos.yml'
 permissions:
   contents: read
 jobs:
-  build:
+  # Compiles every target and runs the tests. Uses an Intel runner because Apple Silicon
+  # hosted runners are often capacity-constrained; the Swift code is architecture-independent.
+  test:
+    runs-on: macos-15-intel
+    steps:
+      - uses: actions/checkout@v4
+      - name: Toolchain
+        run: |
+          uname -m
+          sw_vers
+          swift --version
+      - name: Compile all targets
+        working-directory: macos
+        run: swift build --build-tests 2>&1 | tee build.log; exit ${PIPESTATUS[0]}
+      - name: Run SermonCore tests
+        working-directory: macos
+        run: swift test --skip-build 2>&1 | tee test.log; exit ${PIPESTATUS[0]}
+      - name: Startup smoke test (debug build)
+        working-directory: macos
+        run: |
+          set -euo pipefail
+          # Seed an archive from another platform so startup also exercises loading and migration.
+          mkdir -p "$HOME/Library/Application Support/SermonStudio"
+          cp Tests/SermonCoreTests/Fixtures/windows-library.json "$HOME/Library/Application Support/SermonStudio/archive.json"
+          SERMON_STUDIO_SMOKE_TEST=1 .build/debug/SermonStudio > launch.log 2>&1 &
+          PID=$!
+          sleep 25
+          if kill -0 "$PID" 2>/dev/null; then echo "App is running after 25 s (pid $PID)"; kill "$PID"; else echo "App exited during startup"; cat launch.log; exit 1; fi
+          # The seeded archive must be untouched by simply launching (no silent rewrite or data loss).
+          cmp Tests/SermonCoreTests/Fixtures/windows-library.json "$HOME/Library/Application Support/SermonStudio/archive.json"
+          echo "Archive unchanged by startup."
+          cat launch.log
+          grep -q "SMOKE library=2 blocked=false titles=Grace That Saves|Unopened speakers=Pastor Reed|" launch.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: macos-test-logs
+          path: |
+            macos/build.log
+            macos/test.log
+            macos/launch.log
+  # Cross-builds the arm64 release bundle on Intel and verifies its structure (no launch).
+  package-check:
+    runs-on: macos-15-intel
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build and package arm64 app
+        run: CI=1 SERMON_ALLOW_CROSS_BUILD=1 SERMON_VERSION=3.3.0 SERMON_BUILD_NUMBER=9 bash macos/build-local.sh
+      - name: Verify bundle
+        run: |
+          set -euo pipefail
+          rm -rf /tmp/verify && mkdir /tmp/verify
+          ditto -x -k macos/dist/Sermon-Studio-macOS-arm64.zip /tmp/verify
+          APP="/tmp/verify/Sermon Studio.app"
+          test -x "$APP/Contents/MacOS/SermonStudio"
+          test -s "$APP/Contents/Resources/SermonStudio.icns"
+          test -d "$APP/Contents/Frameworks/Sparkle.framework"
+          ls "$APP/Contents/Resources"
+          plutil -p "$APP/Contents/Info.plist"
+          test "$(lipo -archs "$APP/Contents/MacOS/SermonStudio")" = arm64
+          otool -l "$APP/Contents/MacOS/SermonStudio" | grep -q '@executable_path/../Frameworks'
+          codesign --verify --strict --verbose=2 "$APP"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APP/Contents/Info.plist")" = 3.3.0
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$APP/Contents/Info.plist")" = 9
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$APP/Contents/Info.plist")" = com.sermonstudio.mac
+          /usr/libexec/PlistBuddy -c 'Print :SUPublicEDKey' "$APP/Contents/Info.plist"
+          echo "Bundle verified."
+  # Apple Silicon release packaging and a startup smoke test.
+  package:
     runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
-      - name: Compile Apple Silicon application
-        working-directory: macos
-        run: swift build -c release --arch arm64
-      - name: Package app and disk image
+      - name: Toolchain
         run: |
-          mkdir -p "dist/Sermon Studio.app/Contents/MacOS"
-          cp macos/.build/arm64-apple-macosx/release/SermonStudio "dist/Sermon Studio.app/Contents/MacOS/"
-          cp macos/Info.plist "dist/Sermon Studio.app/Contents/Info.plist"
-          codesign --force --sign - "dist/Sermon Studio.app"
-          ln -s /Applications dist/Applications
-          hdiutil create -volname "Sermon Studio" -srcfolder dist -ov -format UDZO Sermon-Studio-macOS-arm64.dmg
+          uname -m
+          swift --version
+      - name: Build, package and sign (ad hoc) the app
+        run: CI=1 bash macos/build-local.sh
+      - name: Verify bundle and launch the app
+        run: |
+          set -euo pipefail
+          rm -rf /tmp/verify && mkdir /tmp/verify
+          ditto -x -k macos/dist/Sermon-Studio-macOS-arm64.zip /tmp/verify
+          APP="/tmp/verify/Sermon Studio.app"
+          test -x "$APP/Contents/MacOS/SermonStudio"
+          test -f "$APP/Contents/Resources/SermonStudio.icns"
+          test -d "$APP/Contents/Frameworks/Sparkle.framework"
+          plutil -p "$APP/Contents/Info.plist" | grep -E 'CFBundleIdentifier|CFBundleShortVersionString|CFBundleVersion|CFBundleIconFile|SUFeedURL'
+          lipo -archs "$APP/Contents/MacOS/SermonStudio"
+          codesign --verify --strict "$APP"
+          # Startup smoke test: the app must still be running after 20 seconds.
+          "$APP/Contents/MacOS/SermonStudio" > /tmp/launch.log 2>&1 &
+          PID=$!
+          sleep 20
+          if kill -0 "$PID" 2>/dev/null; then echo "App is running (pid $PID)"; kill "$PID"; else echo "App exited during startup"; cat /tmp/launch.log; ls ~/Library/Logs/DiagnosticReports 2>/dev/null | tail; exit 1; fi
       - uses: actions/upload-artifact@v4
+        if: always()
         with:
           name: Sermon-Studio-macOS-arm64
-          path: Sermon-Studio-macOS-arm64.dmg
+          path: |
+            macos/dist/*.dmg
+            macos/dist/build.log

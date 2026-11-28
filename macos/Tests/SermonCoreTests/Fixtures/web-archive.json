@@ -1,0 +1,19 @@
+[
+  {
+    "id": "8d0b8a8e-1c55-4a2b-9f3a-7b1e2c3d4e5f",
+    "title": "Hope Anchored",
+    "date": "2026-04-12",
+    "original": "We have this hope as an anchor for the soul. Hebrews 6:19.",
+    "cleaned": "We have this hope as an anchor for the soul.",
+    "outline": "## Hope",
+    "speaker": "Guest",
+    "primaryScripture": "Hebrews 6:19",
+    "series": "",
+    "collection": "Evening",
+    "tags": "hope",
+    "favorite": false,
+    "lastEdited": "2026-04-12T22:10:05.123Z",
+    "chunks": [ { "text": "We have this hope", "confidence": 0.91, "avgLogprob": null, "timestamp": [1.5, 3.25] } ],
+    "webOnlyField": { "nested": [1, 2, 3], "flag": true }
+  }
+]

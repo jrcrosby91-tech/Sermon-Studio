@@ -1,0 +1,40 @@
+[
+  {
+    "Id": "6f1c2b0e-0d4b-4a63-9a0e-2f9e7d3c1a11",
+    "Title": "Grace That Saves",
+    "Date": "2026-03-08",
+    "Speaker": "Pastor Reed",
+    "PrimaryScripture": "Ephesians 2:8-9",
+    "Series": "Ephesians",
+    "Collection": "Sunday Morning",
+    "LastOpened": "2026-11-20T14:03:11.1234567+00:00",
+    "Tags": "grace, salvation",
+    "Favorite": true,
+    "LastEdited": "2026-11-21T09:15:00-05:00",
+    "Original": "For by grace you have been saved through faith. Read Ephesians 2:8.",
+    "Cleaned": "For by grace you have been saved through faith.",
+    "Outline": "## Grace\n**Saved** by *grace*\n> For by grace are ye saved\n- not of works",
+    "Segments": [ { "Id": "0a6c3c0d-2b8a-41f6-9a45-6f0c38b8a7d2", "Start": 0.0, "End": 4.25, "Text": "For by grace you have been saved", "Confidence": null } ],
+    "Srt": "1\n00:00:00,000 --> 00:00:04,250\nFor by grace you have been saved\n",
+    "Vtt": "WEBVTT\n\n00:00:00.000 --> 00:00:04.250\nFor by grace you have been saved\n"
+  },
+  {
+    "Id": "b3d1f6a2-5c7e-4e2f-8a91-0c2d4e6f8a10",
+    "Title": "Unopened",
+    "Date": "2025-12-25",
+    "Speaker": "",
+    "PrimaryScripture": "",
+    "Series": "",
+    "Collection": "",
+    "LastOpened": "0001-01-01T00:00:00+00:00",
+    "Tags": "",
+    "Favorite": false,
+    "LastEdited": "0001-01-01T00:00:00+00:00",
+    "Original": "Christmas",
+    "Cleaned": "",
+    "Outline": "",
+    "Segments": null,
+    "Srt": "",
+    "Vtt": ""
+  }
+]

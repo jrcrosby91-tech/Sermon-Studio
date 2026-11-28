@@ -1,0 +1,10 @@
+[
+  {
+    "id": "E5A1C3F2-6B7D-4E8F-9A0B-1C2D3E4F5A6B",
+    "title": "Faith Over Fear",
+    "date": "2026-01-18",
+    "original": "Do not fear, only believe. Mark 5:36.",
+    "cleaned": "Do not fear, only believe.",
+    "segments": [ { "id": "11111111-2222-3333-4444-555555555555", "start": 0, "end": 3.5, "text": "Do not fear", "confidence": -0.42 } ]
+  }
+]

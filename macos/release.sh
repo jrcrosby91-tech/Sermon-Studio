@@ -19,6 +19,8 @@ for item in E.parse('appcast.xml').iter('item'):
         if int(enclosure.get(ns+'version','0')) >= int(sys.argv[1]):
             raise SystemExit('Build number must increase')
 PY
+# Never publish a build whose automated tests fail.
+(cd macos && swift test --parallel)
 CI=1 SERMON_VERSION="$VERSION" SERMON_BUILD_NUMBER="$BUILD" bash macos/build-local.sh
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
